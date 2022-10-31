@@ -1,0 +1,26 @@
+{
+  "train": {
+    "lr": 2e-4,
+    "weight_decay": 0.001,
+    "batch_size": 128,
+    "grad_norm": 1.0,
+    "warmup": 1000
+  },
+  "denoise": {
+    "in_channels": 3,
+    "hid_channels": 256,
+    "ch_multipliers": [1, 1, 1],
+    "num_res_blocks": 3,
+    "apply_attn": [false, true, true],
+    "drop_rate": 0.2
+  },
+  "diffusion": {
+    "logsnr_min": -20.0,
+    "logsnr_max": 20.0,
+    "logsnr_schedule": "cosine",
+    "model_out_type": "both",
+    "model_var_type": "fixed_large",
+    "reweight_type": "truncated_snr",
+    "loss_type": "mse"
+  }
+}

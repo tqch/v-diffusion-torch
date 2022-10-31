@@ -1,0 +1,8 @@
+torch~=1.12.1+cu116
+numpy~=1.21.6
+torchvision~=0.13.1+cu116
+requests~=2.24.0
+Pillow~=9.2.0
+scipy~=1.7.3
+tqdm~=4.45.0
+matplotlib~=3.5.2

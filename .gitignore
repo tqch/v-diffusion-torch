@@ -1,0 +1,10 @@
+__pycache__
+.idea
+.ipynb_checkpoints
+precomputed
+images
+chkpts
+unused
+
+notes
+*.ipynb
