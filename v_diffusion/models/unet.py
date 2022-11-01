@@ -129,7 +129,8 @@ class UNet(nn.Module):
             apply_attn,
             embedding_dim=None,
             drop_rate=0.,
-            num_heads=1,
+            head_dim=None,
+            num_heads=None,
             num_classes=0,
             multitags=False,
             resample_with_res=True
@@ -146,6 +147,9 @@ class UNet(nn.Module):
         self.apply_attn = apply_attn
         self.num_res_blocks = num_res_blocks
         self.drop_rate = drop_rate
+        if head_dim is None and num_heads is None:
+            num_heads = 1
+        self.head_dim = head_dim
         self.num_heads = num_heads
         self.num_classes = num_classes
         self.multitags = multitags
@@ -174,7 +178,7 @@ class UNet(nn.Module):
         mid_kwargs = dict(embed_dim=self.embedding_dim, drop_rate=drop_rate)
         self.middle = Sequential(
             ResidualBlock(mid_channels, mid_channels, **mid_kwargs),
-            AttentionBlock(mid_channels, num_heads=num_heads),
+            AttentionBlock(mid_channels, head_dim=head_dim, num_heads=num_heads),
             ResidualBlock(mid_channels, mid_channels, **mid_kwargs)
         )
         self.upsamples = nn.ModuleDict(
@@ -194,7 +198,7 @@ class UNet(nn.Module):
             if apply_attn:
                 return Sequential(ResidualBlock(
                     in_chans, out_chans, resampling=resampling, **block_cfgs),
-                    AttentionBlock(out_chans, None, self.num_heads))
+                    AttentionBlock(out_chans, self.head_dim, self.num_heads))
             else:
                 return ResidualBlock(
                     in_chans, out_chans, resampling=resampling, **block_cfgs)
@@ -244,7 +248,7 @@ class UNet(nn.Module):
         if self.num_classes and y is not None:
             if self.multitags:
                 assert y.ndim == 2
-                y.div(torch.count_nonzero(
+                y.div_(torch.count_nonzero(
                     y, dim=1).clamp(min=1.).sqrt().unsqueeze(1))
             t_emb += self.class_embed(y)
         # downsample

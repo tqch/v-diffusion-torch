@@ -70,6 +70,7 @@ class Trainer:
             use_cfg=False,
             use_ema=False,
             grad_norm=1.0,
+            num_accum=1,
             shape=None,
             device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
             chkpt_intv=5,  # save a checkpoint every [chkpt_intv] epochs
@@ -93,6 +94,7 @@ class Trainer:
         self.scheduler = DummyScheduler() if scheduler is None else scheduler
 
         self.grad_norm = grad_norm
+        self.num_accum = num_accum
         self.device = device
         self.chkpt_intv = chkpt_intv
         self.image_intv = image_intv
@@ -125,28 +127,41 @@ class Trainer:
         assert loss.shape == (B, )
         return loss
 
-    def step(self, x, y):
+    def step(self, x, y, update=True):
         B = x.shape[0]
         loss = self.loss(x, y).mean()
-        loss.backward()
-        # gradient clipping by global norm
-        nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_norm)
-        self.optimizer.step()
-        self.optimizer.zero_grad(set_to_none=True)
-        # adjust learning rate every step (warming up)
-        self.scheduler.step()
-        if self.is_main and self.use_ema:
-            self.ema.update()
+        loss.div(self.num_accum).backward()
+        if update:
+            # gradient clipping by global norm
+            nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_norm)
+            self.optimizer.step()
+            self.optimizer.zero_grad(set_to_none=True)
+            # adjust learning rate every step (warming up)
+            self.scheduler.step()
+            if self.is_main and self.use_ema:
+                self.ema.update()
         self.stats.update(B, loss=loss.item() * B)
 
-    def sample_fn(self, noises, labels, diffusion=None, use_ddim=False):
+    def sample_fn(
+            self, noises, labels,
+            diffusion=None, use_ddim=False, batch_size=-1):
         if diffusion is None:
             diffusion = self.diffusion
         shape = noises.shape
         with self.ema:
-            sample = diffusion.p_sample(
-                denoise_fn=self.model, shape=shape, device=self.device,
-                noise=noises, label=labels, use_ddim=use_ddim)
+            if batch_size == -1:
+                sample = diffusion.p_sample(
+                    denoise_fn=self.model, shape=shape, device=self.device,
+                    noise=noises, label=labels, use_ddim=use_ddim)
+            else:
+                sample = []
+                for i in range(0, noises.shape[0], batch_size):
+                    _slice = slice(i, i+batch_size)
+                    _shape = (min(noises.shape[0] - i, batch_size), ) + tuple(shape[1:])
+                    sample.append(diffusion.p_sample(
+                        denoise_fn=self.model, shape=_shape, device=self.device,
+                        noise=noises[_slice], label=labels[_slice], use_ddim=use_ddim))
+                sample = torch.cat(sample, dim=0)
         assert sample.grad is None
         return sample
 
@@ -187,7 +202,8 @@ class Trainer:
             labels=None,
             chkpt_path=None,
             image_dir=None,
-            use_ddim=False
+            use_ddim=False,
+            sample_bsz=-1
     ):
 
         if self.is_main and self.num_save_images:
@@ -197,19 +213,26 @@ class Trainer:
             if labels is None and self.num_classes:
                 labels = self.random_labels()
 
+        total_batches = 0
         for e in range(self.start_epoch, self.epochs):
             self.stats.reset()
             self.model.train()
             if isinstance(self.sampler, DistributedSampler):
                 self.sampler.set_epoch(e)
-            with tqdm(self.trainloader, desc=f"{e+1}/{self.epochs} epochs", disable=not self.is_main) as t:
+            with tqdm(
+                    self.trainloader,
+                    desc=f"{e+1}/{self.epochs} epochs",
+                    disable=not self.is_main
+            ) as t:
                 for i, (x, y) in enumerate(t):
+                    total_batches += 1
                     if not self.use_cfg:
                         y = None
                     self.step(
                         x.to(self.device),
                         y.float().to(self.device)
-                        if y is not None else y
+                        if y is not None else y,
+                        update=total_batches % self.num_accum == 0
                     )
                     t.set_postfix(self.current_stats)
                     if i == len(self.trainloader) - 1:
@@ -224,7 +247,8 @@ class Trainer:
                         t.set_postfix(results)
             if self.is_main:
                 if not (e + 1) % self.image_intv and self.num_save_images and image_dir:
-                    x = self.sample_fn(noises, labels, use_ddim=use_ddim).cpu()
+                    x = self.sample_fn(
+                        noises, labels, use_ddim=use_ddim, batch_size=sample_bsz)
                     save_image(x, os.path.join(image_dir, f"{e+1}.jpg"))
                 if not (e + 1) % self.chkpt_intv and chkpt_path:
                     self.save_checkpoint(chkpt_path, epoch=e+1, **results)

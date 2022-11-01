@@ -113,7 +113,7 @@ def main(args):
     split = "all" if dataset == "celeba" else "train"
     num_workers = args.num_workers
     trainloader, sampler = get_dataloader(
-        dataset, batch_size=batch_size, split=split, val_size=0., random_seed=seed,
+        dataset, batch_size=batch_size // args.num_accum, split=split, val_size=0., random_seed=seed,
         root=root, drop_last=True, pin_memory=True, num_workers=num_workers, distributed=distributed
     )  # drop_last to have a static input shape; num_workers > 0 to enable asynchronous data loading
 
@@ -159,6 +159,7 @@ def main(args):
         use_cfg=args.use_cfg,
         use_ema=args.use_ema,
         grad_norm=grad_norm,
+        num_accum=args.num_accum,
         shape=image_shape,
         device=train_device,
         chkpt_intv=chkpt_intv,
@@ -189,7 +190,9 @@ def main(args):
         evaluator,
         chkpt_path=chkpt_path,
         image_dir=image_dir,
-        use_ddim=args.use_ddim)
+        use_ddim=args.use_ddim,
+        sample_bsz=args.sample_bsz
+    )
 
 
 if __name__ == "__main__":
@@ -205,6 +208,9 @@ if __name__ == "__main__":
     parser.add_argument("--weight-decay", default=0., type=float,
                         help="decoupled weight_decay factor in Adam")
     parser.add_argument("--batch-size", default=128, type=int)
+    parser.add_argument(
+        "--num-accum", default=1, type=int,
+        help="number of batches before weight update, a.k.a. gradient accumulation")
     parser.add_argument("--train-timesteps", default=0, type=int, help=(
         "number of diffusion steps for training (0 indicates continuous training)"))
     parser.add_argument("--sample-timesteps", default=256, type=int, help="number of diffusion steps for sampling")
@@ -225,6 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--image-dir", default="./images/train", type=str)
     parser.add_argument("--image-intv", default=10, type=int)
     parser.add_argument("--num-save-images", default=64, type=int, help="number of images to generate & save")
+    parser.add_argument("--sample-bsz", default=-1, type=int, help="batch size for sampling")
     parser.add_argument("--config-dir", default="./configs", type=str)
     parser.add_argument("--chkpt-dir", default="./chkpts", type=str)
     parser.add_argument("--chkpt-name", default="", type=str)

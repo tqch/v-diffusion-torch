@@ -42,16 +42,16 @@ class CelebA(datasets.VisionDataset):
             torch.nonzero(data.partition == partition).squeeze()
         self.attr_map = data.attr_names
         if mask == slice(None):  # if split == "all"
-            self.filenames = data.filename
-            self.attrs = data.attr
+            self.filename = data.filename
+            self.attr = data.attr
         else:
-            self.filenames = [data.filename[i] for i in mask]
-            self.attrs = [data.attr[i] for i in mask]
+            self.filename = [data.filename[i] for i in mask]
+            self.attr = [data.attr[i] for i in mask]
         self.download = download
 
     @property
     def targets(self):
-        return self.attrs
+        return self.attr
 
     def _load_data(self):
         CSV = namedtuple("CSV", ["filename", "partition", "attr", "attr_names"])
