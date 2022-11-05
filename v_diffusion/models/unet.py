@@ -248,8 +248,9 @@ class UNet(nn.Module):
         if self.num_classes and y is not None:
             if self.multitags:
                 assert y.ndim == 2
-                y.div_(torch.count_nonzero(
-                    y, dim=1).clamp(min=1.).sqrt().unsqueeze(1))
+                y = y.div(torch.count_nonzero(
+                    y, dim=1
+                ).clamp(min=1.).sqrt().unsqueeze(1))
             t_emb += self.class_embed(y)
         # downsample
         hs = [self.in_conv(x)]
