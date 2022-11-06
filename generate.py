@@ -24,6 +24,7 @@ if __name__ == "__main__":
     parser.add_argument("--use-ddim", action="store_true")
     parser.add_argument("--sample-timesteps", default=1024, type=int)
     parser.add_argument("--uncond", action="store_true")
+    parser.add_argument("--w-guide", default=0.1, type=float)
     parser.add_argument("--suffix", default="", type=str)
 
     args = parser.parse_args()
@@ -66,7 +67,6 @@ if __name__ == "__main__":
     logsnr_schedule = diffusion_kwargs.pop("logsnr_schedule")
     logsnr_max = diffusion_kwargs.pop("logsnr_max")
     logsnr_min = diffusion_kwargs.pop("logsnr_min")
-    num_diffusion_timesteps = diffusion_kwargs.pop("timesteps")
     logsnr_fn = get_logsnr_schedule(logsnr_schedule, logsnr_min, logsnr_max)
 
     diffusion = GaussianDiffusion(
@@ -81,6 +81,7 @@ if __name__ == "__main__":
     model = UNet(
         out_channels=out_channels,
         num_classes=num_classes,
+        multitags=multitags,
         **configs["denoise"],
     )
     model.to(device)
@@ -109,7 +110,7 @@ if __name__ == "__main__":
 
     uncond = args.uncond
     if multitags:
-        labels = DATA_INFO[dataset]["data"](root=args.root).targets
+        labels = DATA_INFO[dataset]["data"](root=args.root, split="all").targets
 
         def get_label_loader(to_device):
             while True:
@@ -135,7 +136,8 @@ if __name__ == "__main__":
             x = diffusion.p_sample(
                 model, shape=shape, device=device,
                 noise=torch.randn(shape, device=device),
-                label=next(label_loader)[:batch_size]
+                label=next(label_loader)[:batch_size],
+                use_ddim=args.use_ddim
             ).cpu()
             x = (x * 127.5 + 127.5).clamp(0, 255).to(torch.uint8).permute(0, 2, 3, 1).numpy()
             pool.map(save_image, list(x))
