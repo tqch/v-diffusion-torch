@@ -1,3 +1,5 @@
+<a href="./assets/raw/banner.jpg"><img alt="banner" src="./assets/banner_small.jpg"/></a>
+---
 # PyTorch Implementation of V-objective Diffusion Probabilistic Model (VDPM) and more
 
 ## Key features
