@@ -97,7 +97,8 @@ def main(args):
         dist.init_process_group("nccl")
         rank = dist.get_rank()  # global process id across all node(s)
         local_rank = int(os.environ["LOCAL_RANK"])  # local device id on a single node
-        _model = _model.to(rank)
+        torch.cuda.set_device(local_rank)
+        _model.cuda()
         model = DDP(_model, device_ids=[local_rank, ])
         train_device = torch.device(f"cuda:{local_rank}")
     else:
@@ -208,9 +209,8 @@ if __name__ == "__main__":
     parser.add_argument("--weight-decay", default=0., type=float,
                         help="decoupled weight_decay factor in Adam")
     parser.add_argument("--batch-size", default=128, type=int)
-    parser.add_argument(
-        "--num-accum", default=1, type=int,
-        help="number of batches before weight update, a.k.a. gradient accumulation")
+    parser.add_argument("--num-accum", default=1, type=int, help=(
+        "number of batches before weight update, a.k.a. gradient accumulation"))
     parser.add_argument("--train-timesteps", default=0, type=int, help=(
         "number of diffusion steps for training (0 indicates continuous training)"))
     parser.add_argument("--sample-timesteps", default=256, type=int, help="number of diffusion steps for sampling")
