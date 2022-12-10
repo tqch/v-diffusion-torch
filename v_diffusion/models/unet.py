@@ -213,8 +213,7 @@ class UNet(nn.Module):
             modules.append(block(curr_chans, curr_chans))
         if level != self.levels - 1:
             if self.resample_with_res:
-                _downsample = block(
-                    curr_chans, curr_chans, resampling="downsample")
+                _downsample = block(curr_chans, curr_chans, resampling="downsample")
             else:
                 _downsample = Conv2d(curr_chans, curr_chans, 3, 2)
             modules.append(_downsample)
@@ -233,8 +232,7 @@ class UNet(nn.Module):
         modules.append(block(next_chans + curr_chans, curr_chans))
         if level != 0:
             if self.resample_with_res:
-                _upsample = block(
-                    curr_chans, curr_chans, resampling="upsample")
+                _upsample = block(curr_chans, curr_chans, resampling="upsample")
             else:
                 _upsample = Sequential(
                     nn.Upsample(scale_factor=2, mode="nearest"),

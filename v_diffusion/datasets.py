@@ -10,7 +10,7 @@ from collections import namedtuple
 
 
 def crop_celeba(img):
-    return transforms.functional.crop(img, top=40, left=15, height=148, width=148)
+    return transforms.functional.crop(img, top=40, left=15, height=148, width=148)  # noqa
 
 
 class CelebA(datasets.VisionDataset):
@@ -71,7 +71,7 @@ class CelebA(datasets.VisionDataset):
         return CSV(filenames, partition, attr, attr_names)
 
     def __getitem__(self, index):
-        X = PIL.Image.open(os.path.join(
+        X = PIL.Image.open(os.path.join(  # noqa
             self.root, self.base_folder, "img_align_celeba", self.filename[index]))
 
         if self.transform is not None:
@@ -162,7 +162,7 @@ def train_val_split(dataset, val_size, random_seed=None):
 
 
 class SubsetSequentialSampler(Sampler):
-    def __init__(self, indices):
+    def __init__(self, indices):  # noqa
         self.indices = indices
 
     def __iter__(self):

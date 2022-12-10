@@ -105,8 +105,8 @@ if __name__ == "__main__":
         with Image.fromarray(arr, mode="RGB") as im:
             im.save(f"{save_dir}/{uuid.uuid4()}.png")
 
-    if torch.backends.cudnn.is_available():
-        torch.backends.cudnn.benchmark = True
+    if torch.backends.cudnn.is_available():  # noqa
+        torch.backends.cudnn.benchmark = True  # noqa
 
     uncond = args.uncond
     if multitags:

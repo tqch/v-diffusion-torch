@@ -182,8 +182,8 @@ def main(args):
             logger("Starting from scratch...")
 
     # use cudnn benchmarking algorithm to select the best conv algorithm
-    if torch.backends.cudnn.is_available():
-        torch.backends.cudnn.benchmark = True
+    if torch.backends.cudnn.is_available():  # noqa
+        torch.backends.cudnn.benchmark = True  # noqa
         logger(f"cuDNN benchmark: ON")
 
     logger("Training starts...", flush=True)

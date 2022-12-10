@@ -1,4 +1,4 @@
-<a href="./assets/raw/banner.jpg"><img alt="banner" src="./assets/banner_small.jpg"/></a>
+<a href="./assets/raw/banner.jpg"><img alt="banner" src="./assets/banner_small.jpg"></a>
 ---
 # PyTorch Implementation of V-objective Diffusion Probabilistic Model (VDPM) and more
 
@@ -111,75 +111,76 @@ python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c
 <p align="center">
 	<table>
         <tr>
-            <th>guidance strength</th>
-            <th>class</th>
-            <th>images</th>
+            <th width="10%" align="center">guidance strength</th>
+            <th width="15%" align="center">class</th>
+            <th width="75%" align="center">images</th>
         </tr><tr>
-            <td rowspan="10"><b>w=0</b></td>
-            <td>airplanes</td>
-            <td rowspan="10"><img alt="w=0" src="./assets/cifar10_w0.jpg" height="100%" width="100%" />
+            <td rowspan="10" height="100%"><b>w=0</b></td>
+            <td height="10%">airplanes</td>
+            <td rowspan="10" height="100%"><a href="./assets/cifar10_w0.png"><img alt="w=0" src="./assets/cifar10_w0.png" height="100%" width="100%"></a></td>
         </tr><tr>
-            <td>cars</td>
+            <td height="10%">cars</td>
         </tr><tr>
-            <td>birds</td>
+            <td height="10%">birds</td>
         </tr><tr>
-            <td>cats</td>
+            <td height="10%">cats</td>
         </tr><tr>
-            <td>deer</td>
+            <td height="10%">deer</td>
         </tr><tr>
-            <td>dogs</td>
+            <td height="10%">dogs</td>
         </tr><tr>
-            <td>frogs</td>
+            <td height="10%">frogs</td>
         </tr><tr>
-            <td>horses</td>
+            <td height="10%">horses</td>
         </tr><tr>
-            <td>ships</td>
+            <td height="10%">ships</td>
         </tr><tr>
-            <td>trucks</td>
+            <td height="10%">trucks</td>
         </tr><tr>
-            <td rowspan="10"><b>w=1</b></td>
-            <td>airplanes</td>
-            <td rowspan="10"><img alt="w=0" src="./assets/cifar10_w1.jpg" height="100%" width="100%" />
+            <td rowspan="10" height="100%"><b>w=1</b></td>
+            <td height="10%">airplanes</td>
+            <td rowspan="10" height="100%"><a href="./assets/cifar10_w1.png"><img alt="w=1" src="./assets/cifar10_w1.png" height="100%" width="100%"></a></td>
+        </tr></td>
         </tr><tr>
-            <td>cars</td>
+            <td height="10%">cars</td>
         </tr><tr>
-            <td>birds</td>
+            <td height="10%">birds</td>
         </tr><tr>
-            <td>cats</td>
+            <td height="10%">cats</td>
         </tr><tr>
-            <td>deer</td>
+            <td height="10%">deer</td>
         </tr><tr>
-            <td>dogs</td>
+            <td height="10%">dogs</td>
         </tr><tr>
-            <td>frogs</td>
+            <td height="10%">frogs</td>
         </tr><tr>
-            <td>horses</td>
+            <td height="10%">horses</td>
         </tr><tr>
-            <td>ships</td>
+            <td height="10%">ships</td>
         </tr><tr>
-            <td>trucks</td>
+            <td height="10%">trucks</td>
         </tr><tr>
-            <td rowspan="10"><b>w=3</b></td>
-			<td>airplanes</td>
-			<td rowspan="10"><img alt="w=0" src="./assets/cifar10_w3.jpg" height="100%" width="100%" />
+            <td rowspan="10" height="100%"><b>w=3</b></td>
+			<td height="10%">airplanes</td>
+			<td rowspan="10" height="100%"><a href="./assets/cifar10_w3.png"><img alt="w=3" src="./assets/cifar10_w3.png" height="100%" width="100%"></a></td>
         </tr><tr>
-            <td>cars</td>
+            <td height="10%">cars</td>
         </tr><tr>
-            <td>birds</td>
+            <td height="10%">birds</td>
         </tr><tr>
-            <td>cats</td>
+            <td height="10%">cats</td>
         </tr><tr>
-            <td>deer</td>
+            <td height="10%">deer</td>
         </tr><tr>
-            <td>dogs</td>
+            <td height="10%">dogs</td>
         </tr><tr>
-            <td>frogs</td>
+            <td height="10%">frogs</td>
         </tr><tr>
-            <td>horses</td>
+            <td height="10%">horses</td>
         </tr><tr>
-            <td>ships</td>
+            <td height="10%">ships</td>
         </tr><tr>
-            <td>trucks</td>
+            <td height="10%">trucks</td>
         </tr>
 	</table>
 </p>
@@ -189,48 +190,48 @@ python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c
 <p align="center">
 	<table>
         <tr>
-            <th>guidance strength</th>
-            <th>tag</th>
-            <th>Black_Hair</th>
-            <th>Blond_Hair</th>
-            <th>Brown_Hair</th>
-            <th>Gray_Hair</th>
+            <th width="5%" align="center">guidance strength</th>
+            <th width="15%" align="center">tag</th>
+            <th width="20%" align="center">Black_Hair</th>
+            <th width="20%" align="center">Blond_Hair</th>
+            <th width="20%" align="center">Brown_Hair</th>
+            <th width="20%" align="center">Gray_Hair</th>
         </tr><tr>
-        	<td rowspan="5"><b>w=0</b></td>
-            <td>Receding_Hairline</td>
-            <td rowspan="5" colspan="4"><img alt="w=0" src="./assets/celeba_w0.jpg" height="100%" width="100%" />
+        	<td rowspan="5" height="100%"><b>w=0</b></td>
+            <td height="20%">Receding_Hairline</td>
+            <td rowspan="5" colspan="4" height="100%"><a href="./assets/celeba_w0.png"><img alt="w=0" src="./assets/celeba_w0.png" height="100%" width="100%"></a></td>
         </tr><tr>
-			<td>Straight_Hair</td>
+			<td height="20%">Straight_Hair</td>
         </tr><tr>
-			<td>Wavy_Hair</td>
+			<td height="20%">Wavy_Hair</td>
         </tr><tr>
-            <td>Bald</td>
+            <td height="20%">Bald</td>
         </tr><tr>
-            <td>Bangs</td>
+            <td height="20%">Bangs</td>
         </tr><tr>
-        	<td rowspan="5"><b>w=1</b></td>
-            <td>Receding_Hairline</td>
-            <td rowspan="5" colspan="4"><img alt="w=0" src="./assets/celeba_w1.jpg" height="100%" width="100%" />
+        	<td rowspan="5" height="100%"><b>w=1</b></td>
+            <td height="20%">Receding_Hairline</td>
+            <td rowspan="5" colspan="4" height="100%"><a href="./assets/celeba_w1.png"><img alt="w=1" src="./assets/celeba_w1.png" height="100%" width="100%"></a></td>
         </tr><tr>
-			<td>Straight_Hair</td>
+			<td height="20%">Straight_Hair</td>
         </tr><tr>
-			<td>Wavy_Hair</td>
+			<td height="20%">Wavy_Hair</td>
         </tr><tr>
-            <td>Bald</td>
+            <td height="20%">Bald</td>
         </tr><tr>
-            <td>Bangs</td>
+            <td height="20%">Bangs</td>
         </tr><tr>
-        	<td rowspan="5"><b>w=3</b></td>
-            <td>Receding_Hairline</td>
-            <td rowspan="5" colspan="4"><img alt="w=3" src="./assets/celeba_w3.jpg" height="100%" width="100%" />
+        	<td rowspan="5" height="100%"><b>w=3</b></td>
+            <td height="20%">Receding_Hairline</td>
+            <td rowspan="5" colspan="4" height="100%"><a href="./assets/celeba_w3.png"><img alt="w=3" src="./assets/celeba_w3.png" height="100%" width="100%"></a></td>
         </tr><tr>
-			<td>Straight_Hair</td>
+			<td height="20%">Straight_Hair</td>
         </tr><tr>
-			<td>Wavy_Hair</td>
+			<td height="20%">Wavy_Hair</td>
         </tr><tr>
-            <td>Bald</td>
+            <td height="20%">Bald</td>
         </tr><tr>
-            <td>Bangs</td>
+            <td height="20%">Bangs</td>
         </tr>
 	</table>
 </p>
@@ -240,48 +241,48 @@ python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c
 <p align="center">
 	<table>
         <tr>
-            <th>guidance strength</th>
-            <th>tag</th>
-            <th>Black_Hair</th>
-            <th>Blond_Hair</th>
-            <th>Brown_Hair</th>
-            <th>Gray_Hair</th>
+            <th width="5%" align="center">guidance strength</th>
+            <th width="15%" align="center">tag</th>
+            <th width="20%" align="center">Black_Hair</th>
+            <th width="20%" align="center">Blond_Hair</th>
+            <th width="20%" align="center">Brown_Hair</th>
+            <th width="20%" align="center">Gray_Hair</th>
         </tr><tr>
-        	<td rowspan="5"><b>w=0</b></td>
-            <td>Receding_Hairline</td>
-            <td rowspan="5" colspan="4"><img alt="w=0" src="./assets/celeba_w0.webp" height="100%" width="100%" />
+        	<td rowspan="5" height="100%"><b>w=0</b></td>
+            <td height="20%">Receding_Hairline</td>
+            <td rowspan="5" colspan="4" height="100%"><a href="./assets/celeba_w0.webp"><img alt="w=0" src="./assets/celeba_w0.webp" height="100%" width="100%"></a></td>
         </tr><tr>
-			<td>Straight_Hair</td>
+			<td height="20%">Straight_Hair</td>
         </tr><tr>
-			<td>Wavy_Hair</td>
+			<td height="20%">Wavy_Hair</td>
         </tr><tr>
-            <td>Bald</td>
+            <td height="20%">Bald</td>
         </tr><tr>
-            <td>Bangs</td>
+            <td height="20%">Bangs</td>
         </tr><tr>
-        	<td rowspan="5"><b>w=1</b></td>
-            <td>Receding_Hairline</td>
-            <td rowspan="5" colspan="4"><img alt="w=0" src="./assets/celeba_w1.webp" height="100%" width="100%" />
+        	<td rowspan="5" height="100%"><b>w=1</b></td>
+            <td height="20%">Receding_Hairline</td>
+            <td rowspan="5" colspan="4" height="100%"><a href="./assets/celeba_w1.webp"><img alt="w=1" src="./assets/celeba_w1.webp" height="100%" width="100%"></a></td>
         </tr><tr>
-			<td>Straight_Hair</td>
+			<td height="20%">Straight_Hair</td>
         </tr><tr>
-			<td>Wavy_Hair</td>
+			<td height="20%">Wavy_Hair</td>
         </tr><tr>
-            <td>Bald</td>
+            <td height="20%">Bald</td>
         </tr><tr>
-            <td>Bangs</td>
+            <td height="20%">Bangs</td>
         </tr><tr>
-        	<td rowspan="5"><b>w=3</b></td>
-            <td>Receding_Hairline</td>
-            <td rowspan="5" colspan="4"><img alt="w=3" src="./assets/celeba_w3.webp" height="100%" width="100%" />
+        	<td rowspan="5" height="100%"><b>w=3</b></td>
+            <td height="20%">Receding_Hairline</td>
+            <td rowspan="5" colspan="4" height="100%"><a href="./assets/celeba_w3.webp"><img alt="w=3" src="./assets/celeba_w3.webp" height="100%" width="100%"></a></td>
         </tr><tr>
-			<td>Straight_Hair</td>
+			<td height="20%">Straight_Hair</td>
         </tr><tr>
-			<td>Wavy_Hair</td>
+			<td height="20%">Wavy_Hair</td>
         </tr><tr>
-            <td>Bald</td>
+            <td height="20%">Bald</td>
         </tr><tr>
-            <td>Bangs</td>
+            <td height="20%">Bangs</td>
         </tr>
 	</table>
 </p>
@@ -298,4 +299,3 @@ The development of this codebase is largely based on the official JAX implementa
 [^3]: Song, Jiaming, Chenlin Meng, and Stefano Ermon. "Denoising diffusion implicit models." arXiv preprint arXiv:2010.02502 (2020).
 [^4]: Salimans, Tim, and Jonathan Ho. "Progressive distillation for fast sampling of diffusion models." arXiv preprint arXiv:2202.00512 (2022).
 [^5]: Ho, Jonathan, Tim Salimans. ‘Classifier-Free Diffusion Guidance’. NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications, 2021. https://openreview.net/forum?id=qw8AKxfYbI.
-

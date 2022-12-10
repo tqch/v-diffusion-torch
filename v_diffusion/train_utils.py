@@ -72,7 +72,7 @@ class Trainer:
             grad_norm=1.0,
             num_accum=1,
             shape=None,
-            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            device=torch.device("cpu"),
             chkpt_intv=5,  # save a checkpoint every [chkpt_intv] epochs
             image_intv=1,  # generate images every [image_intv] epochs
             num_save_images=64,

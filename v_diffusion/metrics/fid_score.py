@@ -43,6 +43,7 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
 import numpy as np
 import torch
+import torch.utils.data
 import torchvision.transforms as TF
 from PIL import Image
 from scipy import linalg
@@ -146,7 +147,7 @@ PRE_COMPUTED_LIST = {
     "cifar10": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_cifar10_train.npz",
     "svhn": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_svhn_train.npz",
     "imagenet_train": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_imagenet_train.npz",
-    "imagenet_train": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_imagenet_valid.npz"
+    "imagenet_valid": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_imagenet_valid.npz"
 }
 
 
