@@ -1,7 +1,7 @@
 """
 This script is modified from the original PyTorch Implementation of FID
-(https://github.com/mseitzer/pytorch-fid/) to support fid evaulation on
-the fly during the training process without writing data onto the disk.
+(https://github.com/mseitzer/pytorch-fid/) to support fid evaluation on
+the fly without writing data onto the disk during the training process.
 """
 
 """Calculates the Frechet Inception Distance (FID) to evalulate GANs
@@ -37,17 +37,21 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-import os
-import pathlib
-from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
-import numpy as np
-import torch
-import torch.utils.data
-import torchvision.transforms as TF
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from PIL import Image
 from scipy import linalg
+from .inception import InceptionV3
 from torch.nn.functional import adaptive_avg_pool2d
+from torchvision import transforms
+import io
+import os
+import pathlib
+import numpy as np
+import requests
+import torch
+import torch.nn as nn
+import torch.utils.data
 
 try:
     from tqdm import tqdm
@@ -55,13 +59,6 @@ except ImportError:
     # If tqdm is not available, provide a mock version of it
     def tqdm(x):
         return x
-
-from .inception import InceptionV3
-
-import io
-import requests
-import torch.nn as nn
-from torchvision import transforms
 
 IMAGE_RES = 299
 
@@ -97,7 +94,7 @@ class InceptionStatistics(nn.Module):
         self.model.eval()
         self.model.to(device)
         # initialize statistics
-        self.running_mean = np.zeros((activation_dim, ), dtype=np.float64)
+        self.running_mean = np.zeros((activation_dim,), dtype=np.float64)
         self.running_var = np.zeros((activation_dim, activation_dim), dtype=np.float64)
         self.count = 0
 
@@ -143,6 +140,7 @@ class InceptionStatistics(nn.Module):
 PRE_COMPUTED_LIST = {
     # "cropped_celeba": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_celeba.npz",
     "cropped_celeba": "https://github.com/tqch/VAEGAN/releases/download/precomputed_statistics_celeba/fid_stats_celeba_148x148.npz",
+    # noqa
     "lsun_bedroom": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_lsun_train.npz",
     "cifar10": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_cifar10_train.npz",
     "svhn": "http://bioinf.jku.at/research/ttur/ttur_stats/fid_stats_svhn_train.npz",
@@ -179,6 +177,7 @@ def get_precomputed(dataset, download_dir="precomputed"):
 
 def calc_fd(mean1, var1, mean2, var2, eps=1e-6):
     return calculate_frechet_distance(mean1, var1, mean2, var2, eps)
+
 
 ###############################################################
 # Original code below
@@ -229,7 +228,7 @@ def get_activations(files, model, batch_size=50, dims=2048, device='cpu',
                'Setting batch size to data size'))
         batch_size = len(files)
 
-    dataset = ImagePathDataset(files, transforms=TF.ToTensor())
+    dataset = ImagePathDataset(files, transforms=transforms.ToTensor())
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
                                              shuffle=False,
@@ -350,7 +349,7 @@ def compute_statistics_of_path(path, model, batch_size, dims, device,
     else:
         path = pathlib.Path(path)
         files = sorted([file for ext in IMAGE_EXTENSIONS
-                       for file in path.glob('*.{}'.format(ext))])
+                        for file in path.glob('*.{}'.format(ext))])
         m, s = calculate_activation_statistics(files, model, batch_size,
                                                dims, device, num_workers)
 
