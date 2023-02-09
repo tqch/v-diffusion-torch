@@ -227,8 +227,7 @@ class GaussianDiffusion:
             loss_type,
             intp_frac=None,
             w_guide=0.1,
-            p_uncond=0.1,
-            use_ddim=False
+            p_uncond=0.1
     ):
         self.logsnr_fn = logsnr_fn
         self.sample_timesteps = sample_timesteps
