@@ -303,7 +303,7 @@ class GaussianDiffusion:
     # === sample ===
 
     def p_sample_step(
-            self, denoise_fn, x_t, step, y,
+            self, denoise_fn, x_t, step, y, generator=None,
             clip_denoised=True, return_pred=False, use_ddim=False):
         s, t = step.div(self.sample_timesteps), \
                step.add(1).div(self.sample_timesteps)
@@ -320,19 +320,23 @@ class GaussianDiffusion:
             _model_mean = torch.where(cond, _model_mean, _pred_x_0)
             model_mean += self.w_guide * (model_mean - _model_mean)
 
-        noise = torch.randn_like(x_t)
+        noise = torch.empty_like(x_t).normal_(generator=generator)
         sample = model_mean + cond.float() * torch.exp(0.5 * model_logvar) * noise
 
         return (sample, pred_x_0) if return_pred else sample
 
     @torch.inference_mode()
     def p_sample(
-            self, denoise_fn, shape,
-            noise=None, label=None, device="cpu", use_ddim=False):
+            self, denoise_fn, shape, noise=None, label=None,
+            device="cpu", seed=None, use_ddim=False):
         B = shape[0]
         t = torch.empty((B,), device=device)
+        if seed is None:
+            generator = None
+        else:
+            generator = torch.Generator(device).manual_seed(seed)
         if noise is None:
-            x_t = torch.randn(shape, device=device)
+            x_t = torch.randn(shape, device=device, generator=generator)
         else:
             x_t = noise.to(device)
         if label is not None:
@@ -340,17 +344,21 @@ class GaussianDiffusion:
         for ti in reversed(range(self.sample_timesteps)):
             t.fill_(ti)
             x_t = self.p_sample_step(
-                denoise_fn, x_t, step=t, y=label, use_ddim=use_ddim)
+                denoise_fn, x_t, step=t, y=label, generator=generator, use_ddim=use_ddim)
         return x_t.cpu()
 
     @torch.inference_mode()
     def p_sample_progressive(
-            self, denoise_fn, shape,
-            noise=None, label=None, device="cpu", use_ddim=False, pred_freq=50):
+            self, denoise_fn, shape, noise=None, label=None,
+            device="cpu", seed=None, use_ddim=False, pred_freq=50):
         B = shape[0]
         t = torch.empty(B, device=device)
+        if seed is None:
+            generator = None
+        else:
+            generator = torch.Generator(device).manual_seed(seed)
         if noise is None:
-            x_t = torch.randn(shape, device=device)
+            x_t = torch.randn(shape, device=device, generator=generator)
         else:
             x_t = noise.to(device)
         L = self.sample_timesteps // pred_freq
@@ -359,7 +367,8 @@ class GaussianDiffusion:
         for ti in reversed(range(self.sample_timesteps)):
             t.fill_(ti)
             x_t, pred = self.p_sample_step(
-                denoise_fn, x_t, step=t, y=label, return_pred=True, use_ddim=use_ddim)
+                denoise_fn, x_t, step=t, y=label, generator=generator,
+                return_pred=True, use_ddim=use_ddim)
             if (ti + 1) % pred_freq == 0:
                 idx -= 1
                 preds[idx] = pred.cpu()

@@ -103,11 +103,15 @@ class Trainer:
         if distributed:
             assert sampler is not None
         self.distributed = distributed
-        self.is_main = rank == 0
+        self.is_leader = rank == 0
+
+        # maintain a process-specific generator
+        self.generator = torch.Generator(device).manual_seed(8191 + rank)
+        self.sample_seed = 131071 + rank  # process-specific seed
 
         self.use_cfg = use_cfg
         self.use_ema = use_ema
-        if self.is_main and use_ema:
+        if self.is_leader and use_ema:
             self.ema = EMA(self.model, decay=ema_decay)
         else:
             self.ema = nullcontext()
@@ -119,11 +123,12 @@ class Trainer:
         T = self.timesteps
         if T > 0:
             t = torch.randint(
-                T, size=(B, ), dtype=torch.float32, device=self.device
+                T, size=(B, ), dtype=torch.float32, device=self.device, generator=self.generator
             ).add(1).div(self.timesteps)
         else:
-            t = torch.rand((B, ), dtype=torch.float32, device=self.device)
-        loss = self.diffusion.train_losses(self.model, x_0=x, t=t, y=y)
+            t = torch.rand((B, ), dtype=torch.float32, device=self.device, generator=self.generator)
+        noise = torch.empty_like(x).normal_(generator=self.generator)
+        loss = self.diffusion.train_losses(self.model, x_0=x, t=t, y=y, noise=noise)
         assert loss.shape == (B, )
         return loss
 
@@ -138,7 +143,7 @@ class Trainer:
             self.optimizer.zero_grad(set_to_none=True)
             # adjust learning rate every step (warming up)
             self.scheduler.step()
-            if self.is_main and self.use_ema:
+            if self.is_leader and self.use_ema:
                 self.ema.update()
         self.stats.update(B, loss=loss.item() * B)
 
@@ -151,16 +156,16 @@ class Trainer:
         with self.ema:
             if batch_size == -1:
                 sample = diffusion.p_sample(
-                    denoise_fn=self.model, shape=shape, device=self.device,
-                    noise=noises, label=labels, use_ddim=use_ddim)
+                    denoise_fn=self.model, shape=shape, device=self.device, noise=noises,
+                    label=labels, seed=self.sample_seed, use_ddim=use_ddim)
             else:
                 sample = []
                 for i in range(0, noises.shape[0], batch_size):
                     _slice = slice(i, i+batch_size)
                     _shape = (min(noises.shape[0] - i, batch_size), ) + tuple(shape[1:])
                     sample.append(diffusion.p_sample(
-                        denoise_fn=self.model, shape=_shape, device=self.device,
-                        noise=noises[_slice], label=labels[_slice], use_ddim=use_ddim))
+                        denoise_fn=self.model, shape=_shape, device=self.device, noise=noises[_slice],
+                        label=labels[_slice], seed=self.sample_seed, use_ddim=use_ddim))
                 sample = torch.cat(sample, dim=0)
         assert sample.grad is None
         return sample
@@ -206,7 +211,7 @@ class Trainer:
             sample_bsz=-1
     ):
 
-        if self.is_main and self.num_save_images:
+        if self.is_leader and self.num_save_images:
             if noises is None:
                 # fixed x_T for image generation
                 noises = torch.randn((self.num_save_images, ) + self.shape)
@@ -222,7 +227,7 @@ class Trainer:
             with tqdm(
                     self.trainloader,
                     desc=f"{e+1}/{self.epochs} epochs",
-                    disable=not self.is_main
+                    disable=not self.is_leader
             ) as t:
                 for i, (x, y) in enumerate(t):
                     total_batches += 1
@@ -245,7 +250,7 @@ class Trainer:
                         results.update(self.current_stats)
                         results.update(eval_results)
                         t.set_postfix(results)
-            if self.is_main:
+            if self.is_leader:
                 if not (e + 1) % self.image_intv and self.num_save_images and image_dir:
                     x = self.sample_fn(
                         noises, labels, use_ddim=use_ddim, batch_size=sample_bsz)

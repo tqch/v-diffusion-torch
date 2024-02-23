@@ -73,7 +73,6 @@ if __name__ == "__main__":
         logsnr_fn=logsnr_fn,
         sample_timesteps=args.sample_timesteps,
         w_guide=w_guide,
-        use_ddim=args.use_ddim,
         **diffusion_kwargs)
 
     model_out_type = diffusion_kwargs.get("model_out_type", "both")
