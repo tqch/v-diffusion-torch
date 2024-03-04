@@ -1,7 +1,10 @@
+import glob
+import math
+import numpy as np
 import os
-import re
 import torch
 import torch.nn as nn
+import torch.distributed as tdist
 from torch.nn.parallel import DistributedDataParallel
 from .utils import save_image, EMA
 from .metrics.fid_score import InceptionStatistics, get_precomputed, calc_fd
@@ -45,7 +48,7 @@ class RunningStatistics:
     def extract(self):
         avg_stats = []
         for k, v in self.stats.items():
-            avg_stats.append((k, v/self.count))
+            avg_stats.append((k, v / self.count))
         return dict(avg_stats)
 
     def __repr__(self):
@@ -73,12 +76,15 @@ class Trainer:
             num_accum=1,
             shape=None,
             device=torch.device("cpu"),
-            chkpt_intv=5,  # save a checkpoint every [chkpt_intv] epochs
-            image_intv=1,  # generate images every [image_intv] epochs
+            ckpt_intv=512,  # save a checkpoint every <ckpt_intv> epochs
+            max_ckpts_kept=-1,  # maximum number of checkpoints to keep
+            image_intv=64,  # generate images every <image_intv> epochs
+            eval_intv=128,  # evaluate images every <eval_intv> epochs
             num_save_images=64,
             ema_decay=0.9999,
             distributed=False,
-            rank=0  # process id for distributed training
+            rank=0,  # process id for distributed training
+            world_size=1,  # total number of processes
     ):
         self.model = model
         self.optimizer = optimizer
@@ -96,17 +102,25 @@ class Trainer:
         self.grad_norm = grad_norm
         self.num_accum = num_accum
         self.device = device
-        self.chkpt_intv = chkpt_intv
+        self.ckpt_intv = ckpt_intv
+        self.max_ckpts_kept = max_ckpts_kept
         self.image_intv = image_intv
+        self.eval_intv = eval_intv
         self.num_save_images = num_save_images
 
         if distributed:
             assert sampler is not None
         self.distributed = distributed
+        self.rank = rank
         self.is_leader = rank == 0
+        self.world_size = world_size
+
+        assert num_save_images % world_size == 0
+        self.local_num_save_images = num_save_images // world_size
 
         # maintain a process-specific generator
         self.generator = torch.Generator(device).manual_seed(8191 + rank)
+        self.label_seed = 127 + rank  # process-specific seed
         self.sample_seed = 131071 + rank  # process-specific seed
 
         self.use_cfg = use_cfg
@@ -123,19 +137,23 @@ class Trainer:
         T = self.timesteps
         if T > 0:
             t = torch.randint(
-                T, size=(B, ), dtype=torch.float32, device=self.device, generator=self.generator
+                T, size=(B,), dtype=torch.float64, device=self.device, generator=self.generator
             ).add(1).div(self.timesteps)
         else:
-            t = torch.rand((B, ), dtype=torch.float32, device=self.device, generator=self.generator)
+            t = torch.rand((B,), dtype=torch.float64, device=self.device, generator=self.generator)
         noise = torch.empty_like(x).normal_(generator=self.generator)
-        loss = self.diffusion.train_losses(self.model, x_0=x, t=t, y=y, noise=noise)
-        assert loss.shape == (B, )
+        loss = self.diffusion.train_loss(self.model, x_0=x, t=t, y=y, noise=noise)
+        assert loss.shape == (B,)
         return loss
 
     def step(self, x, y, update=True):
         B = x.shape[0]
         loss = self.loss(x, y).mean()
         loss.div(self.num_accum).backward()
+        loss = loss.detach()
+        if self.distributed:
+            tdist.reduce(loss, dst=0, op=tdist.ReduceOp.SUM)  # synchronize losses
+            loss.div_(self.world_size)
         if update:
             # gradient clipping by global norm
             nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_norm)
@@ -144,37 +162,33 @@ class Trainer:
             # adjust learning rate every step (warming up)
             self.scheduler.step()
             if self.is_leader and self.use_ema:
+                assert isinstance(self.ema, EMA)
                 self.ema.update()
         self.stats.update(B, loss=loss.item() * B)
 
-    def sample_fn(
-            self, noises, labels,
-            diffusion=None, use_ddim=False, batch_size=-1):
+    def sample_fn(self, label, diffusion=None, use_ddim=False):
         if diffusion is None:
             diffusion = self.diffusion
-        shape = noises.shape
+        shape = (self.local_num_save_images, *self.shape)
         with self.ema:
-            if batch_size == -1:
-                sample = diffusion.p_sample(
-                    denoise_fn=self.model, shape=shape, device=self.device, noise=noises,
-                    label=labels, seed=self.sample_seed, use_ddim=use_ddim)
-            else:
-                sample = []
-                for i in range(0, noises.shape[0], batch_size):
-                    _slice = slice(i, i+batch_size)
-                    _shape = (min(noises.shape[0] - i, batch_size), ) + tuple(shape[1:])
-                    sample.append(diffusion.p_sample(
-                        denoise_fn=self.model, shape=_shape, device=self.device, noise=noises[_slice],
-                        label=labels[_slice], seed=self.sample_seed, use_ddim=use_ddim))
-                sample = torch.cat(sample, dim=0)
+            sample = diffusion.p_sample(
+                denoise_fn=self.model, shape=shape, device=self.device, noise=None,
+                label=label, seed=self.sample_seed, use_ddim=use_ddim)
+        if self.distributed:
+            # equalizes GPU memory usages across all processes within the same process group
+            sample_list = [torch.zeros(shape, device=self.device) for _ in range(self.world_size)]
+            dist.all_gather(sample_list, sample.to(self.device))
+            sample = torch.cat(sample_list, dim=0).cpu()
         assert sample.grad is None
         return sample
 
-    def random_labels(self):
+    def sample_labels(self):
         if self.multitags:
             inds = torch.randint(
                 len(self.trainloader.dataset),
-                size=(self.num_save_images,))
+                size=(self.num_save_images,),
+                generator=torch.Generator().manual_seed(self.label_seed)
+            )
             labels = torch.as_tensor(
                 self.trainloader.dataset.targets[inds], dtype=torch.float32)
         else:
@@ -184,7 +198,7 @@ class Trainer:
                  + int(i < self.num_save_images % self.num_classes))
                 for i in range(self.num_classes)])
             labels = labels.repeat_interleave(repeats)
-        return labels
+        return labels[self.rank * self.local_num_save_images: (self.rank + 1) * self.local_num_save_images]
 
     @property
     def num_classes(self):
@@ -203,30 +217,31 @@ class Trainer:
     def train(
             self,
             evaluator=None,
-            noises=None,
-            labels=None,
-            chkpt_path=None,
+            ckpt_path=None,
             image_dir=None,
             use_ddim=False,
-            sample_bsz=-1
     ):
 
-        if self.is_leader and self.num_save_images:
-            if noises is None:
-                # fixed x_T for image generation
-                noises = torch.randn((self.num_save_images, ) + self.shape)
-            if labels is None and self.num_classes:
-                labels = self.random_labels()
+        nrow = 8
+        labels = None
+        if self.num_save_images:
+            if self.num_classes:
+                labels = self.sample_labels()
+            if self.num_classes:
+                nrow = math.ceil(self.num_save_images / self.num_classes)
+            else:
+                nrow = math.floor(math.sqrt(self.num_save_images))
 
         total_batches = 0
         for e in range(self.start_epoch, self.epochs):
             self.stats.reset()
             self.model.train()
+            results = dict()
             if isinstance(self.sampler, DistributedSampler):
                 self.sampler.set_epoch(e)
             with tqdm(
                     self.trainloader,
-                    desc=f"{e+1}/{self.epochs} epochs",
+                    desc=f"{e + 1}/{self.epochs} epochs",
                     disable=not self.is_leader
             ) as t:
                 for i, (x, y) in enumerate(t):
@@ -240,23 +255,25 @@ class Trainer:
                         update=total_batches % self.num_accum == 0
                     )
                     t.set_postfix(self.current_stats)
-                    if i == len(self.trainloader) - 1:
+
+                if self.is_leader:
+                    if not (e + 1) % self.eval_intv and evaluator is not None:
                         self.model.eval()
-                        if evaluator is not None:
-                            eval_results = evaluator.eval(self.sample_fn)
-                        else:
-                            eval_results = dict()
-                        results = dict()
+                        eval_results = evaluator.eval(self.sample_fn)
                         results.update(self.current_stats)
                         results.update(eval_results)
                         t.set_postfix(results)
+
+            if not (e + 1) % self.image_intv and self.num_save_images and image_dir:
+                self.model.eval()
+                x = self.sample_fn(labels, use_ddim=use_ddim)
+                if self.is_leader:
+                    save_image(x, os.path.join(image_dir, f"{e + 1}.png"), nrow=nrow)
             if self.is_leader:
-                if not (e + 1) % self.image_intv and self.num_save_images and image_dir:
-                    x = self.sample_fn(
-                        noises, labels, use_ddim=use_ddim, batch_size=sample_bsz)
-                    save_image(x, os.path.join(image_dir, f"{e+1}.jpg"))
-                if not (e + 1) % self.chkpt_intv and chkpt_path:
-                    self.save_checkpoint(chkpt_path, epoch=e+1, **results)
+                if not (e + 1) % self.ckpt_intv and ckpt_path and self.max_ckpts_kept != 0:
+                    if not results:
+                        results = self.current_stats
+                    self.save_checkpoint(ckpt_path, epoch=e + 1, **results)
             if self.distributed:
                 dist.barrier()  # synchronize all processes here
 
@@ -273,30 +290,36 @@ class Trainer:
     def current_stats(self):
         return self.stats.extract()
 
-    def load_checkpoint(self, chkpt_path, map_location):
-        chkpt = torch.load(chkpt_path, map_location=map_location)
+    def load_checkpoint(self, ckpt_path, map_location):
+        ckpt = torch.load(ckpt_path, map_location=map_location)
         for trainee in self.trainees:
             try:
-                getattr(self, trainee).load_state_dict(chkpt[trainee])
+                getattr(self, trainee).load_state_dict(ckpt[trainee])
             except RuntimeError:
-                _chkpt = chkpt[trainee]["shadow"] if trainee == "ema" else chkpt[trainee]
-                for k in list(_chkpt.keys()):
+                _ckpt = ckpt[trainee]["shadow"] if trainee == "ema" else ckpt[trainee]
+                for k in list(_ckpt.keys()):
                     if k.split(".")[0] == "module":
-                        _chkpt[".".join(k.split(".")[1:])] = _chkpt.pop(k)
-                getattr(self, trainee).load_state_dict(chkpt[trainee])
+                        _ckpt[".".join(k.split(".")[1:])] = _ckpt.pop(k)
+                getattr(self, trainee).load_state_dict(ckpt[trainee])
             except AttributeError:
                 continue
-        self.start_epoch = chkpt["epoch"]
+        self.start_epoch = ckpt["epoch"]
 
-    def save_checkpoint(self, chkpt_path, **extra_info):
-        chkpt = []
+    def save_checkpoint(self, ckpt_path, **extra_info):
+        ckpt = []
         for k, v in self.named_state_dicts():
-            chkpt.append((k, v))
+            ckpt.append((k, v))
         for k, v in extra_info.items():
-            chkpt.append((k, v))
+            ckpt.append((k, v))
         if "epoch" in extra_info:
-            chkpt_path = re.sub(r"(_\d+)?\.pt", f"_{extra_info['epoch']}.pt", chkpt_path)
-        torch.save(dict(chkpt), chkpt_path)
+            ckpt_path = ckpt_path.format(epoch=extra_info["epoch"])
+        else:
+            ckpt_path = ckpt_path.format(epoch="latest")
+        torch.save(dict(ckpt), ckpt_path)
+        ckpts = glob.glob(f"{os.path.dirname(ckpt_path)}/*.pt")
+        if self.max_ckpts_kept != -1 and len(ckpts) > self.max_ckpts_kept:
+            oldest_ckpt_path = ckpts[np.argmin(list(map(os.path.getctime, ckpts)))]
+            os.remove(oldest_ckpt_path)
 
     def named_state_dicts(self):
         for k in self.trainees:

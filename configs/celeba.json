@@ -1,15 +1,19 @@
 {
+  "data": {
+    "name": "celeba"
+  },
   "train": {
-    "lr": 4e-5,
+    "epochs": 1024,
+    "lr": 3e-4,
     "batch_size": 128,
     "grad_norm": 1.0,
-    "warmup": 1000
+    "warmup": 1000,
+    "weight_decay": 0.0
   },
-  "denoise": {
-    "in_channels": 3,
-    "hid_channels": 64,
+  "model": {
+    "hid_channels": 192,
     "ch_multipliers": [1, 2, 3, 4],
-    "num_res_blocks": 2,
+    "num_res_blocks": 3,
     "apply_attn": [false, true, true, true],
     "embedding_dim": 768,
     "drop_rate": 0.1,
@@ -19,9 +23,16 @@
     "logsnr_min": -20.0,
     "logsnr_max": 20.0,
     "logsnr_schedule": "cosine",
+    "train_timesteps": 0,
     "model_out_type": "both",
     "model_var_type": "fixed_large",
-    "reweight_type": "truncated_snr",
+    "reweight_type": "snr_trunc",
     "loss_type": "mse"
-  }
+  },
+  "conditional": {
+    "use_cfg": true,
+    "w_guide": 0.1,
+    "p_uncond": 0.1
+  },
+  "source": "https://github.com/google-research/google-research/blob/master/diffusion_distillation/diffusion_distillation/config/imagenet64_base.py"
 }

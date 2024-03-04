@@ -2,6 +2,7 @@ import os
 import csv
 import PIL
 import torch
+import torch.distributed as tdist
 import numpy as np
 from torchvision import transforms, datasets
 from torch.utils.data import DataLoader, Subset, Sampler
@@ -182,39 +183,55 @@ def get_dataloader(
         pin_memory=False,
         drop_last=False,
         num_workers=0,
-        distributed=False
+        distributed=False,
+        is_leader=True,
 ):
     assert isinstance(val_size, float) and 0 <= val_size < 1
     transform = DATA_INFO[dataset]["transform"]
     target_transform = DATA_INFO[dataset].get("target_transform", None)
-    data_configs = {
+    data_config = {
         "root": root,
-        "download": False,
         "transform": transform,
         "target_transform": target_transform
     }
     if distributed:
         batch_size = batch_size // int(os.environ.get("WORLD_SIZE", "1"))
-    dataloader_configs = {
+    dataloader_config = {
         "batch_size": batch_size,
         "pin_memory": pin_memory,
         "drop_last": drop_last,
         "num_workers": num_workers
     }
-    if dataset == "celeba":
-        data = DATA_INFO[dataset]["data"](root=root, split=split, transform=transform)
-    else:
-        if split == "test":
-            data = DATA_INFO[dataset]["data"](train=False, **data_configs)
+
+    def get_data(download=False):
+        data_config["download"] = download
+        if dataset == "celeba":
+            data = DATA_INFO[dataset]["data"](root=root, split=split, transform=transform)
         else:
-            data = DATA_INFO[dataset]["data"](train=True, **data_configs)
-            if val_size == 0:
-                assert split == "train"
+            if split == "test":
+                data = DATA_INFO[dataset]["data"](train=False, **data_config)
             else:
-                train_inds, val_inds = train_val_split(dataset, val_size, random_seed)
-                data = Subset(data, {"train": train_inds, "valid": val_inds}[split])
-    dataloader_configs["sampler"] = sampler = DistributedSampler(
+                data = DATA_INFO[dataset]["data"](train=True, **data_config)
+                if val_size == 0:
+                    assert split == "train"
+                else:
+                    train_inds, val_inds = train_val_split(dataset, val_size, random_seed)
+                    data = Subset(data, {"train": train_inds, "valid": val_inds}[split])
+        return data
+
+    try:
+        data = get_data()
+    except RuntimeError:
+        data = None
+        if is_leader:
+            data = get_data(True)
+        if distributed:
+            tdist.barrier()
+        if data is None:
+            data = get_data()
+
+    dataloader_config["sampler"] = sampler = DistributedSampler(
         data, shuffle=True, seed=random_seed, drop_last=drop_last) if distributed else None
-    dataloader_configs["shuffle"] = (sampler is None) if split in {"train", "all"} else False
-    dataloader = DataLoader(data, **dataloader_configs)
+    dataloader_config["shuffle"] = (sampler is None) if split in {"train", "all"} else False
+    dataloader = DataLoader(data, **dataloader_config)
     return dataloader, sampler

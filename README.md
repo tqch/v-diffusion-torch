@@ -35,8 +35,8 @@ usage: train.py [-h] [--dataset {mnist,cifar10,celeba}] [--root ROOT]
                 [--eval-device EVAL_DEVICE] [--image-dir IMAGE_DIR]          
                 [--image-intv IMAGE_INTV] [--num-save-images NUM_SAVE_IMAGES]
                 [--sample-bsz SAMPLE_BSZ] [--config-dir CONFIG_DIR]          
-                [--chkpt-dir CHKPT_DIR] [--chkpt-name CHKPT_NAME]            
-                [--chkpt-intv CHKPT_INTV] [--seed SEED] [--resume] [--eval]  
+                [--ckpt-dir CHKPT_DIR] [--ckpt-name CHKPT_NAME]            
+                [--ckpt-intv CHKPT_INTV] [--seed SEED] [--resume] [--eval]  
                 [--use-ema] [--use-ddim] [--ema-decay EMA_DECAY]             
                 [--distributed]                                    
 optional arguments:                                                          
@@ -80,9 +80,9 @@ optional arguments:
   --sample-bsz SAMPLE_BSZ
                         batch size for sampling
   --config-dir CONFIG_DIR
-  --chkpt-dir CHKPT_DIR
-  --chkpt-name CHKPT_NAME
-  --chkpt-intv CHKPT_INTV
+  --ckpt-dir CHKPT_DIR
+  --ckpt-name CHKPT_NAME
+  --ckpt-intv CHKPT_INTV
                         frequency of saving a checkpoint
   --seed SEED           random seed
   --resume              to resume training from a checkpoint
@@ -93,16 +93,16 @@ optional arguments:
 ### Examples
 ```shell
 # train cifar10 with one gpu
-python train.py --dataset cifar10 --use-ema --use-ddim --num-save-images 80 --use-cfg --epochs 600 --chkpt-intv 120 --image-intv 10
+python train.py --dataset cifar10 --use-ema --use-ddim --num-save-images 80 --use-cfg --epochs 600 --ckpt-intv 120 --image-intv 10
 
 # train cifar10 with two gpus
-python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c10d train.py --dataset cifar10 --use-ema --use-ddim --num-save-images 80 --use-cfg --epochs 600 --chkpt-intv 120 --image-intv10 --distributed
+python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c10d train.py --dataset cifar10 --use-ema --use-ddim --num-save-images 80 --use-cfg --epochs 600 --ckpt-intv 120 --image-intv10 --distributed
 
 # train celeba with one gpu with effective batch_size 128
-python train.py --dataset celeba --use-ema --use-ddim --num-save-images 64 --use-cfg --epochs 240 --chkpt-intv 120 --image-intv 10 --num-accum 8 --sample-bsz 32
+python train.py --dataset celeba --use-ema --use-ddim --num-save-images 64 --use-cfg --epochs 240 --ckpt-intv 120 --image-intv 10 --num-accum 8 --sample-bsz 32
 
 # train celebA with two gpus
-python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c10d train.py --dataset celeba --use-ema --use-ddim --num-save-images 64 --use-cfg --epochs 240 --chkpt-intv 120 --image-intv 10 --distributed --num-accum 4 --sample-bsz 32
+python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c10d train.py --dataset celeba --use-ema --use-ddim --num-save-images 64 --use-cfg --epochs 240 --ckpt-intv 120 --image-intv 10 --distributed --num-accum 4 --sample-bsz 32
 ```
 ## Conditional generation
 

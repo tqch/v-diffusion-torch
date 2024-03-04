@@ -20,9 +20,9 @@ def get_timestep_embedding(
     timesteps = scale * timesteps.ravel()
     half_dim = embed_dim // 2
     embed = math.log(10000) / (half_dim - 1)
-    embed = torch.exp(-torch.arange(half_dim, dtype=dtype, device=timesteps.device) * embed)
-    embed = torch.outer(timesteps.to(dtype), embed)
-    embed = torch.cat([torch.sin(embed), torch.cos(embed)], dim=1)
+    embed = torch.exp(-torch.arange(half_dim, dtype=timesteps.dtype, device=timesteps.device) * embed)
+    embed = torch.outer(timesteps, embed)
+    embed = torch.cat([torch.sin(embed), torch.cos(embed)], dim=1).to(dtype)
     if embed_dim % 2 == 1:
         embed = F.pad(embed, [0, 1])  # padding the last dimension
     assert embed.dtype == dtype
@@ -107,3 +107,41 @@ def flat_mean(x, start_dim=1):
 def flat_sum(x, start_dim=1):
     reduce_dim = [i for i in range(start_dim, x.ndim)]
     return torch.sum(x, dim=reduce_dim)
+
+
+if __name__ == "__main__":
+
+    t32 = torch.linspace(0, 1, 1000)
+    t64 = torch.linspace(0, 1, 1000, dtype=torch.float64)
+    emb32 = get_timestep_embedding(t32, 1024)
+    emb64 = get_timestep_embedding(t64, 1024)
+
+    print(torch.allclose(emb32, emb64))
+    # print(emb32, emb64)
+    print((emb32 - emb64).abs().max())
+
+    def _get_timestep_embedding(
+            timesteps, embed_dim: int, dtype: torch.dtype = DEFAULT_DTYPE, scale: float = 1000.):
+        """
+        testing only
+        """
+        timesteps = scale * timesteps.ravel()
+        half_dim = embed_dim // 2
+        embed = math.log(10000) / (half_dim - 1)
+        embed = torch.exp(-torch.arange(half_dim, dtype=dtype, device=timesteps.device) * embed)
+        embed = timesteps.to(dtype) * embed[None, :]
+        embed = torch.cat([torch.sin(embed), torch.cos(embed)], dim=1)
+        if embed_dim % 2 == 1:
+            embed = F.pad(embed, [0, 1])  # padding the last dimension
+        assert embed.dtype == dtype
+        return embed
+
+    t32 = t32[:, None].repeat((1, 1024)).requires_grad_(True)
+    emb32 = get_timestep_embedding(t32, 1024)
+    grad = torch.autograd.grad(emb32.sum(), inputs=[t32, ])[0] / 1000
+    assert grad.shape == (1000, 1024)
+    print(grad.abs().max(dim=1).values)
+
+    # import matplotlib.pyplot as plt
+    # plt.plot(grad.abs().max(dim=1).values)
+    # plt.show()

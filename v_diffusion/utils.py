@@ -39,18 +39,48 @@ def seed_all(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def get_param(name, configs_1, configs_2):
-    def get(obj, name):
+def update_config(
+        old_name,
+        new_name=None,
+        old_config=None,  # original config
+        new_config=None,  # config for update
+        default=None,
+        logical_op=None,
+):
+    def safe_get(obj, name):
         if hasattr(obj, "__getitem__"):
-            return obj[name]
+            return obj.get(name, default)
         elif hasattr(obj, "__getattribute__"):
-            return getattr(obj, name)
+            return getattr(obj, name, default)
         else:
-            NotImplementedError("Not supported!")
+            raise NotImplementedError(obj.__class__)
+
+    def safe_set(obj, name, value):
+        if hasattr(obj, "__setitem__"):
+            obj[name] = value
+        elif hasattr(obj, "__getattribute__"):
+            setattr(obj, name, value)
+        else:
+            raise NotImplementedError(obj.__class__)
+
+    if new_name is None:
+        new_name = old_name
+
     try:
-        param = get(configs_1, name)
-    except (KeyError, AttributeError):
-        param = get(configs_2, name)
+        param = safe_get(new_config, new_name)
+        assert param is not None
+        if isinstance(param, bool):
+            if logical_op is not None:
+                if logical_op == "OR":
+                    assert param
+                elif logical_op == "AND":
+                    assert not param
+                else:
+                    raise NotImplementedError(logical_op)
+    except (KeyError, AttributeError, AssertionError):
+        param = safe_get(old_config, old_name)
+
+    safe_set(old_config, old_name, param)
     return param
 
 
@@ -158,3 +188,37 @@ class EMA:
                 f"Unexpected key(s): {', '.join(set.difference(dict_keys, _dict_keys))}"
             )
         self.__dict__.update(state_dict)
+
+
+def fill_with_defaults(config, defaults):
+    for k, v in defaults.items():
+        if isinstance(v, dict):
+            if k not in config:
+                config[k] = dict()
+            fill_with_defaults(config[k], defaults[k])
+        else:
+            if k not in config or config[k] is None:
+                config[k] = v
+
+
+if __name__ == "__main__":
+    config = {
+        "a": None,
+        "b": {
+            "c": 1,
+            "d": None
+        }
+    }
+
+    defaults = {
+        "a": 2,
+        "b": {
+            "c": 3,
+            "d": 4,
+            "e": 5
+        },
+        "f": 6
+    }
+
+    fill_with_defaults(config, defaults)
+    print(config)

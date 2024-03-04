@@ -1,8 +1,43 @@
-__pycache__
-.idea
-.ipynb_checkpoints
-precomputed
-images
-chkpts
-exclude
+# Virtual Environments
+env/
+venv/
+pyvenv.cfg
+
+# Packages
+*.gz
+*.pyc
+*.zip
 *.ipynb
+*.tar
+
+# Python
+__pycache__/
+**/__pycache__
+*.py[cod]
+
+# PyTorch
+*.pt
+*.pth
+
+# OS generated files
+.DS_Store
+.DS_Store?
+.Trashes
+
+# IDE and Editor directories
+.idea/
+.vscode/
+
+# Jupyter Notebook/Lab
+**/.ipynb_checkpoints
+**/.jupyterlab-config/
+
+# Project
+logs/
+exps/
+test/
+debug/
+exclude/
+precomputed/
+**/images
+**/ckpts

@@ -1,0 +1,51 @@
+{
+  "data": {
+    "root": "~/datasets",
+    "name": "cifar10"
+  },
+  "train": {
+    "seed": 1234,
+    "epoch": 2048,
+    "lr": 2e-4,
+    "beta1": 0.9,
+    "beta2": 0.999,
+    "weight_decay": 0.0,
+    "batch_size": 128,
+    "grad_norm": 1.0,
+    "warmup": 5000,
+    "use_ema": true,
+    "ema_decay": 0.9999,
+    "ckpt_intv": 32,
+    "max_ckpts_kept": 1,
+    "image_intv": 16,
+    "num_save_images": 64
+  },
+  "model": {
+    "in_channels": 3,
+    "hid_channels": 256,
+    "ch_multipliers": [1, 1, 1],
+    "num_res_blocks": 3,
+    "apply_attn": [false, true, true],
+    "drop_rate": 0.2,
+    "num_heads": 1
+  },
+  "diffusion": {
+    "logsnr_min": -20.0,
+    "logsnr_max": 20.0,
+    "logsnr_schedule": "legacy",
+    "train_timesteps": 1000,
+    "sample_timesteps": 256,
+    "model_out_type": "eps",
+    "model_var_type": "fixed_large",
+    "intp_frac": 0.0,
+    "reweight_type": "snr",
+    "loss_type": "mse",
+    "allow_rescale": false,
+    "x0eps_coef": false
+  },
+  "conditional": {
+    "use_cfg": false,
+    "w_guide": 0.0,
+    "p_uncond": 0.0
+  }
+}

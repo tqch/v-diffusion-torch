@@ -254,7 +254,7 @@ class UNet(nn.Module):
         hs = [self.in_conv(x)]
         for i in range(self.levels):
             downsample = self.downsamples[f"level_{i}"]
-            for j, layer in enumerate(downsample):
+            for j, layer in enumerate(downsample):  # noqa
                 h = hs[-1]
                 if j != self.num_res_blocks or self.resample_with_res:
                     hs.append(layer(h, t_emb=t_emb))
@@ -267,7 +267,7 @@ class UNet(nn.Module):
         # upsample
         for i in range(self.levels-1, -1, -1):
             upsample = self.upsamples[f"level_{i}"]
-            for j, layer in enumerate(upsample):
+            for j, layer in enumerate(upsample):  # noqa
                 if j != self.num_res_blocks + 1:
                     h = layer(torch.cat([h, hs.pop()], dim=1), t_emb=t_emb)
                 elif self.resample_with_res:

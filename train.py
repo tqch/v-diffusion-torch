@@ -19,54 +19,78 @@ def main(args):
         if not distributed or dist.get_rank() == 0:
             print(msg, **kwargs)
 
-    root = os.path.expanduser(args.root)
-    dataset = args.dataset
+    config_path = args.config_path
+    exp_name = args.exp_name or os.path.splitext(os.path.basename(config_path))[0]
+    with open(config_path, "r") as f:
+        config: dict = json.load(f)
+    with open(args.default_config_path, "r") as f:
+        defaults: dict = json.load(f)
+    fill_with_defaults(config, defaults)
+
+    # dataset parameters
+    update_data = partial(update_config, old_config=config.get("data", {}), new_config=args)
+    dataset = config["data"]["name"]
+    root = update_data("root", "data_root")
+    if "~" in root:
+        root = os.path.expanduser(root)
+    if "$" in root:
+        root = os.path.expandvars(root)
 
     in_channels = DATA_INFO[dataset]["channels"]
     image_res = DATA_INFO[dataset]["resolution"]
     image_shape = (in_channels, ) + image_res
 
+    # conditional parameters
+    update_cond = partial(update_config, old_config=config.get("conditional", {}), new_config=args)
+    use_cfg = update_cond("use_cfg", logical_op="OR")
+    w_guide = update_cond("w_guide")
+    p_uncond = update_cond("p_uncond")
+
     multitags = DATA_INFO[dataset].get("multitags", False)
-    if args.use_cfg:
+    if use_cfg:
         num_classes = DATA_INFO[dataset].get("num_classes", 0)
-        w_guide = args.w_guide
-        p_uncond = args.p_uncond
     else:
         num_classes = 0
-        w_guide = 0.
-        p_uncond = 0.
-
-    # set seed for all rngs
-    seed = args.seed
-    seed_all(seed)
-
-    configs_path = os.path.join(args.config_dir, args.dataset + ".json")
-    with open(configs_path, "r") as f:
-        configs: dict = json.load(f)
 
     # train parameters
-    gettr = partial(get_param, configs_1=configs.get("train", {}), configs_2=args)
-    batch_size = gettr("batch_size")
-    beta1, beta2 = gettr("beta1"), gettr("beta2")
-    weight_decay = gettr("weight_decay")
-    lr = gettr("lr")
-    epochs = gettr("epochs")
-    grad_norm = gettr("grad_norm")
-    warmup = gettr("warmup")
+    update_train = partial(update_config, old_config=config.get("train", {}), new_config=args)
+    epochs = update_train("epochs")
+    seed = update_train("seed")
+    batch_size = update_train("batch_size")
+    beta1, beta2 = update_train("beta1"), update_train("beta2")
+    weight_decay = update_train("weight_decay")
+    lr = update_train("lr")
+    grad_norm = update_train("grad_norm")
+    warmup = update_train("warmup")
+    use_ema = update_train("use_ema", logical_op="OR")
+    ema_decay = update_train("ema_decay")
+    ckpt_intv = update_train("ckpt_intv")
+    image_intv = update_train("image_intv")
+    num_save_images = update_train("num_save_images")
+    max_ckpts_kept = update_train("max_ckpts_kept")
+
+    # set seed for all rngs
+    seed_all(seed)
+
     train_device = torch.device(args.train_device)
     eval_device = torch.device(args.eval_device)
 
     # diffusion parameters
-    getdif = partial(get_param, configs_1=configs.get("diffusion", {}), configs_2=args)
-    logsnr_schedule = getdif("logsnr_schedule")
-    logsnr_min, logsnr_max = getdif("logsnr_min"), getdif("logsnr_max")
-    train_timesteps = getdif("train_timesteps")
-    sample_timesteps = getdif("sample_timesteps")
-    reweight_type = getdif("reweight_type")
-    logsnr_fn = get_logsnr_schedule(logsnr_schedule, logsnr_min=logsnr_min, logsnr_max=logsnr_max)
-    model_out_type = getdif("model_out_type")
-    model_var_type = getdif("model_var_type")
-    loss_type = getdif("loss_type")
+    update_diff = partial(update_config, old_config=config.get("diffusion", {}), new_config=args)
+    logsnr_schedule = update_diff("logsnr_schedule")
+    logsnr_min, logsnr_max = update_diff("logsnr_min"), update_diff("logsnr_max")
+    train_timesteps = update_diff("train_timesteps")
+    sample_timesteps = update_diff("sample_timesteps")
+    reweight_type = update_diff("reweight_type")
+    model_out_type = update_diff("model_out_type")
+    model_var_type = update_diff("model_var_type")
+    intp_frac = update_diff("intp_frac")
+    loss_type = update_diff("loss_type")
+    allow_rescale = update_diff("allow_rescale", logical_op="OR")
+    x0eps_coef = update_diff("x0eps_coef", logical_op="OR")
+
+    t_rescale = (train_timesteps == 0) and allow_rescale
+    logsnr_fn = get_logsnr_schedule(logsnr_schedule, logsnr_min=logsnr_min, logsnr_max=logsnr_max, rescale=t_rescale)
 
     diffusion = GaussianDiffusion(
         logsnr_fn=logsnr_fn,
@@ -75,20 +99,27 @@ def main(args):
         model_var_type=model_var_type,
         reweight_type=reweight_type,
         loss_type=loss_type,
-        intp_frac=args.intp_frac,
+        intp_frac=intp_frac,
         w_guide=w_guide,
-        p_uncond=p_uncond
+        p_uncond=p_uncond,
+        x0eps_coef=x0eps_coef,
     )
 
-    # denoise parameters
+    # model parameters
     # currently, model_var_type = "learned" is not supported
     # out_channels = 2 * in_channels if model_var_type == "learned" else in_channels
-    out_channels = 2 * in_channels if model_out_type == "both" else in_channels
+    if "in_channels" in config["model"]:
+        assert config["model"]["in_channels"] == in_channels
+    else:
+        config["model"]["in_channels"] = in_channels
+    if "out_channels" not in config["model"]:
+        assert "model_out_type" in config["diffusion"]
+        out_channels = 2 * in_channels if model_out_type == "both" else in_channels
+        config["model"]["out_channels"] = out_channels
     _model = UNet(
-        out_channels=out_channels,
         num_classes=num_classes,
         multitags=multitags,
-        **configs["denoise"])
+        **config["model"])
 
     if distributed:
         # check whether torch.distributed is available
@@ -96,14 +127,17 @@ def main(args):
         assert dist.is_available() and torch.cuda.is_available()
         dist.init_process_group("nccl")
         rank = dist.get_rank()  # global process id across all node(s)
+        world_size = dist.get_world_size()  # total number of processes
         local_rank = int(os.environ["LOCAL_RANK"])  # local device id on a single node
         torch.cuda.set_device(local_rank)
         _model.cuda()
         model = DDP(_model, device_ids=[local_rank, ])
-        train_device = torch.device(f"cuda:{local_rank}")
+        train_device = eval_device = torch.device(f"cuda:{local_rank}")
     else:
         rank = local_rank = 0  # main process by default
+        world_size = 1
         model = _model.to(train_device)
+    is_leader = rank == 0
 
     optimizer = AdamW(model.parameters(), lr=lr, betas=(beta1, beta2), weight_decay=weight_decay)
     # Note1: lr_lambda is used to calculate the **multiplicative factor**
@@ -115,38 +149,34 @@ def main(args):
     num_workers = args.num_workers
     trainloader, sampler = get_dataloader(
         dataset, batch_size=batch_size // args.num_accum, split=split, val_size=0., random_seed=seed,
-        root=root, drop_last=True, pin_memory=True, num_workers=num_workers, distributed=distributed
+        root=root, drop_last=True, pin_memory=True, num_workers=num_workers, distributed=distributed,
+        is_leader=is_leader
     )  # drop_last to have a static input shape; num_workers > 0 to enable asynchronous data loading
 
-    configs["train"]["epochs"] = epochs
-    configs["use_ema"] = args.use_ema
-    configs["conditional"] = {
-        "use_cfg": args.use_cfg,
-        "w_guide": w_guide,
-        "p_uncond": p_uncond
-    }
     timestamp = datetime.now().strftime("%Y-%m-%dT%H%M%S%f")
 
-    chkpt_dir = args.chkpt_dir
-    if not os.path.exists(chkpt_dir):
-        os.makedirs(chkpt_dir)
+    exp_dir = os.path.join(args.exp_dir, f"dpm_{exp_name}", timestamp)
 
-    # keep a record of hyperparameter settings used for current experiment
-    with open(os.path.join(chkpt_dir, f"exp_{timestamp}.json"), "w") as f:
-        json.dump(configs, f)
+    ckpt_dir = os.path.join(exp_dir, "ckpts")
+    ckpt_path = os.path.join(ckpt_dir, "ckpt_{epoch}.pt")
+    logger(f"Checkpoint will be saved to {os.path.abspath(ckpt_dir)}", end=" ")
+    logger(f"every {ckpt_intv} epoch(s)")
 
-    chkpt_path = os.path.join(chkpt_dir, args.chkpt_name or f"vdpm_{dataset}.pt")
-    chkpt_intv = args.chkpt_intv
-    logger(f"Checkpoint will be saved to {os.path.abspath(chkpt_path)}", end=" ")
-    logger(f"every {chkpt_intv} epoch(s)")
-
-    image_dir = os.path.join(args.image_dir, f"{dataset}")
-    if not os.path.exists(image_dir):
+    image_dir = os.path.join(exp_dir, "images")
+    if is_leader and not os.path.exists(image_dir):
         os.makedirs(image_dir)
-    image_intv = args.image_intv
-    num_save_images = args.num_save_images
     logger(f"Generated images (x{num_save_images}) will be saved to {os.path.abspath(image_dir)}", end=" ")
     logger(f"every {image_intv} epoch(s)")
+
+    if is_leader:
+        os.makedirs(exp_dir, exist_ok=True)
+        os.makedirs(ckpt_dir, exist_ok=True)
+        os.makedirs(ckpt_dir, exist_ok=True)
+
+        # keep a record of hyperparameter settings used for current experiment
+        with open(os.path.join(exp_dir, f"config.json"), "w") as f:
+            config["args"] = vars(args)
+            json.dump(config, f, indent=2)
 
     trainer = Trainer(
         model=model,
@@ -157,18 +187,21 @@ def main(args):
         trainloader=trainloader,
         sampler=sampler,
         scheduler=scheduler,
-        use_cfg=args.use_cfg,
-        use_ema=args.use_ema,
+        use_cfg=use_cfg,
+        use_ema=use_ema,
         grad_norm=grad_norm,
         num_accum=args.num_accum,
         shape=image_shape,
         device=train_device,
-        chkpt_intv=chkpt_intv,
+        ckpt_intv=ckpt_intv,
+        max_ckpts_kept=max_ckpts_kept,
         image_intv=image_intv,
         num_save_images=num_save_images,
-        ema_decay=args.ema_decay,
+        eval_intv=args.eval_intv,
+        ema_decay=ema_decay,
+        distributed=distributed,
         rank=rank,
-        distributed=distributed
+        world_size=world_size,
     )
     evaluator = Evaluator(dataset=dataset, device=eval_device) if args.eval else None
     # in case of elastic launch, resume should always be turned on
@@ -176,7 +209,7 @@ def main(args):
     if resume:
         try:
             map_location = {"cuda:0": f"cuda:{local_rank}"} if distributed else train_device
-            trainer.load_checkpoint(chkpt_path, map_location=map_location)
+            trainer.load_checkpoint(ckpt_path, map_location=map_location)
         except FileNotFoundError:
             logger("Checkpoint file does not exist!")
             logger("Starting from scratch...")
@@ -189,10 +222,9 @@ def main(args):
     logger("Training starts...", flush=True)
     trainer.train(
         evaluator,
-        chkpt_path=chkpt_path,
+        ckpt_path=ckpt_path,
         image_dir=image_dir,
         use_ddim=args.use_ddim,
-        sample_bsz=args.sample_bsz
     )
 
 
@@ -200,48 +232,52 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
 
     parser = ArgumentParser()
-    parser.add_argument("--dataset", choices=["mnist", "cifar10", "celeba"], default="cifar10")
-    parser.add_argument("--root", default="~/datasets", type=str, help="root directory of datasets")
-    parser.add_argument("--epochs", default=120, type=int, help="total number of training epochs")
-    parser.add_argument("--lr", default=0.0002, type=float, help="learning rate")
-    parser.add_argument("--beta1", default=0.9, type=float, help="beta_1 in Adam")
-    parser.add_argument("--beta2", default=0.999, type=float, help="beta_2 in Adam")
-    parser.add_argument("--weight-decay", default=0., type=float,
-                        help="decoupled weight_decay factor in Adam")
-    parser.add_argument("--batch-size", default=128, type=int)
-    parser.add_argument("--num-accum", default=1, type=int, help=(
-        "number of batches before weight update, a.k.a. gradient accumulation"))
-    parser.add_argument("--train-timesteps", default=0, type=int, help=(
-        "number of diffusion steps for training (0 indicates continuous training)"))
-    parser.add_argument("--sample-timesteps", default=256, type=int, help="number of diffusion steps for sampling")
-    parser.add_argument("--logsnr-schedule", choices=["linear", "sigmoid", "cosine", "legacy"], default="cosine")
-    parser.add_argument("--logsnr-max", default=20., type=float)
-    parser.add_argument("--logsnr-min", default=-20., type=float)
-    parser.add_argument("--model-out-type", choices=["x_0", "eps", "both", "v"], default="both", type=str)
-    parser.add_argument("--model-var-type", choices=["fixed_small", "fixed_large", "fixed_medium"], default="fixed_large", type=str)
-    parser.add_argument("--reweight-type", choices=["constant", "snr", "truncated_snr", "alpha2"], default="truncated_snr", type=str)
-    parser.add_argument("--loss-type", choices=["kl", "mse"], default="mse", type=str)
-    parser.add_argument("--intp-frac", default=0., type=float)
-    parser.add_argument("--use-cfg", action="store_true", help="whether to use classifier-free guidance")
-    parser.add_argument("--w-guide", default=0.1, type=float, help="classifier-free guidance strength")
-    parser.add_argument("--p-uncond", default=0.1, type=float, help="probability of unconditional training")
-    parser.add_argument("--num-workers", default=4, type=int, help="number of workers for data loading")
-    parser.add_argument("--train-device", default="cuda:0", type=str)
-    parser.add_argument("--eval-device", default="cuda:0", type=str)
-    parser.add_argument("--image-dir", default="./images/train", type=str)
-    parser.add_argument("--image-intv", default=10, type=int)
-    parser.add_argument("--num-save-images", default=64, type=int, help="number of images to generate & save")
-    parser.add_argument("--sample-bsz", default=-1, type=int, help="batch size for sampling")
-    parser.add_argument("--config-dir", default="./configs", type=str)
-    parser.add_argument("--chkpt-dir", default="./chkpts", type=str)
-    parser.add_argument("--chkpt-name", default="", type=str)
-    parser.add_argument("--chkpt-intv", default=120, type=int, help="frequency of saving a checkpoint")
-    parser.add_argument("--seed", default=1234, type=int, help="random seed")
+    parser.add_argument("--data_root", type=str, help="root directory of datasets")
+    parser.add_argument("--epochs", type=int, help="total number of training epochs")
+    parser.add_argument("--lr", type=float, help="learning rate")
+    parser.add_argument("--beta1", type=float, help="beta_1 in Adam")
+    parser.add_argument("--beta2", type=float, help="beta_2 in Adam")
+    parser.add_argument("--weight-decay", type=float, help="decoupled weight_decay factor in Adam")
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--num-accum", type=int, default=1, help="number of batches before weight update, a.k.a. gradient accumulation")
+    parser.add_argument("--train-timesteps", type=int, help="number of diffusion steps for training (0 indicates continuous training)")
+    parser.add_argument("--sample-timesteps", type=int, help="number of diffusion steps for sampling")
+    parser.add_argument("--logsnr-schedule", choices=["linear", "sigmoid", "cosine", "legacy"])
+    parser.add_argument("--logsnr-max", type=float)
+    parser.add_argument("--logsnr-min", type=float)
+    parser.add_argument("--model-out-type", type=str, choices=["x_0", "eps", "both", "v"])
+    parser.add_argument("--model-var-type", type=str, choices=["fixed_small", "fixed_large", "fixed_medium"])
+    parser.add_argument("--reweight-type", type=str, choices=["constant", "snr", "snr_trunc", "snr_1plus"])
+    parser.add_argument("--loss-type", type=str, choices=["kl", "mse"])
+    parser.add_argument("--intp-frac", type=float)
+    parser.add_argument("--w-guide", type=float, help="classifier-free guidance strength")
+    parser.add_argument("--p-uncond", type=float, help="probability of unconditional training")
+    parser.add_argument("--num-workers", type=int, default=4, help="number of workers for data loading")
+    parser.add_argument("--train-device", type=str, default="cuda:0")
+    parser.add_argument("--eval-device", type=str, default="cuda:0")
+    parser.add_argument("--image-intv", type=int)
+    parser.add_argument("--num-save-images", type=int, help="number of images to generate & save")
+    parser.add_argument("--use-ddim", action="store_true", help="whether to use DDIM sampler")
+    parser.add_argument("--config-path", required=True, type=str)
+    parser.add_argument("--default-config-path", default="./configs/defaults.json", type=str)
+    parser.add_argument("--exp-dir", type=str, default="./exps")
+    parser.add_argument("--exp-name", type=str)
+    parser.add_argument("--ckpt-intv", type=int, help="frequency of saving a checkpoint")
+    parser.add_argument("--seed", type=int, help="random seed")
     parser.add_argument("--resume", action="store_true", help="to resume training from a checkpoint")
     parser.add_argument("--eval", action="store_true", help="whether to evaluate fid during training")
-    parser.add_argument("--use-ema", action="store_true", help="whether to use exponential moving average")
-    parser.add_argument("--use-ddim", action="store_true", help="whether to use DDIM sampler")
-    parser.add_argument("--ema-decay", default=0.9999, type=float, help="decay factor of ema")
+    parser.add_argument("--eval-intv", type=int, default=128, help="frequency of evaluating the model")
+    parser.add_argument("--ema-decay", type=float, help="decay factor of ema")
     parser.add_argument("--distributed", action="store_true", help="whether to use distributed training")
+    parser.add_argument("--max-ckpts-kept", type=int, help="maximum number of checkpoints to keep on disk (none for no cap)")
+
+    # "OR"-type flags: use_cfg, use_ema, allow_rescale, x0eps_coef
+    parser.add_argument("--use-cfg", action="store_true", help="whether to use classifier-free guidance")
+    parser.add_argument("--use-ema", action="store_true", help="whether to use exponential moving average")
+
+    # set the following flags to replicate google-research implementation
+    # reference: https://github.com/google-research/google-research/blob/master/ddpm_w_distillation/ddpm_w_distillation/dpm.py
+    parser.add_argument("--allow-rescale", action="store_true", help="whether to allow in-place adjustment of t")
+    parser.add_argument("--x0eps-coef", action="store_true", help="whether the posterior mean should be expressed in terms of x0 and eps")
 
     main(parser.parse_args())

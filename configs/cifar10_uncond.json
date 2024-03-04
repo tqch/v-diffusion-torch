@@ -1,0 +1,38 @@
+{
+  "train": {
+    "epochs": 5120,
+    "lr": 2e-4,
+    "weight_decay": 0.001,
+    "batch_size": 128,
+    "grad_norm": 1.0,
+    "warmup": 1000,
+    "use_ema": true,
+    "ema_decay": 0.9999,
+    "ckpt_intv": 16,
+    "max_ckpts_kept": 5,
+    "image_intv": 16,
+    "num_save_images": 100
+  },
+  "model": {
+    "hid_channels": 256,
+    "ch_multipliers": [1, 1, 1],
+    "num_res_blocks": 3,
+    "apply_attn": [false, true, true],
+    "drop_rate": 0.2,
+    "num_heads": 1
+  },
+  "diffusion": {
+    "logsnr_min": -20.0,
+    "logsnr_max": 20.0,
+    "logsnr_schedule": "cosine",
+    "train_timesteps": 0,
+    "model_out_type": "x0",
+    "model_var_type": "fixed_large",
+    "reweight_type": "snr_trunc",
+    "loss_type": "mse"
+  },
+  "conditional": {
+    "use_cfg": false
+  },
+  "source": "https://github.com/google-research/google-research/blob/master/diffusion_distillation/diffusion_distillation/config/cifar_base.py"
+}
