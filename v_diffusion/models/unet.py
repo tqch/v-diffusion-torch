@@ -1,6 +1,13 @@
 import math
 import torch
 import torch.nn as nn
+from functools import partial
+
+try:
+    from xformers.ops import memory_efficient_attention
+    _xformers_available = True
+except ModuleNotFoundError:
+    _xformers_available = False
 
 try:
     from ..modules import Linear, Conv2d, Sequential, OneHot
@@ -23,16 +30,16 @@ class DEFAULT_NORMALIZER(nn.GroupNorm):
         super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps)
 
 
-class AttentionBlock(nn.Module):
+class BaseAttentionBlock(nn.Module):
     normalize = DEFAULT_NORMALIZER
 
     def __init__(
             self,
             in_dim,
             head_dim=None,
-            num_heads=None
+            num_heads=None,
     ):
-        super(AttentionBlock, self).__init__()
+        super().__init__()
         if head_dim is None:
             assert num_heads is not None and in_dim % num_heads == 0
             head_dim = in_dim // num_heads
@@ -42,14 +49,11 @@ class AttentionBlock(nn.Module):
 
         self.head_dim = head_dim
         self.num_heads = num_heads
-
         self.norm = self.normalize(in_dim)
-        hid_dim = head_dim * num_heads
-        self.proj_in = Conv2d(in_dim, 3 * hid_dim, 1)
-        self.proj_out = Conv2d(hid_dim, in_dim, 1, init_scale=0.)
+        self.hid_dim = head_dim * num_heads
 
     @staticmethod
-    def qkv(q, k, v):
+    def scaled_dot_product(q, k, v):
         B, N, C, H, W = q.shape
         w = torch.einsum("bnchw, bncHW -> bnhwHW", q, k)
         w = torch.softmax(
@@ -59,15 +63,44 @@ class AttentionBlock(nn.Module):
             w, v.flatten(start_dim=3)).reshape(B, N * C, H, W)
         return out
 
+
+class AttentionBlock(BaseAttentionBlock):
+    def __init__(self, in_dim, head_dim=None, num_heads=None):
+        super().__init__(in_dim, head_dim=head_dim, num_heads=num_heads)
+        self.proj_in = Conv2d(in_dim, 3 * self.hid_dim, 1)
+        self.proj_out = Conv2d(self.hid_dim, in_dim, 1, init_scale=0.)
+
     def forward(self, x, **kwargs):
         skip = x
         H, W = x.shape[2:]
         q, k, v = self.proj_in(self.norm(x)).reshape(
             -1, 3 * self.num_heads, self.head_dim, H, W
         ).chunk(3, dim=1)
-        x = self.qkv(q, k, v)
+        x = self.scaled_dot_product(q, k, v)
         x = self.proj_out(x)
         return x + skip
+
+
+class XFormersAttentionBlock(BaseAttentionBlock):
+
+    def __init__(self, in_dim, head_dim=None, num_heads=None):
+        super().__init__(in_dim, head_dim=head_dim, num_heads=num_heads)
+
+        self.to_q = Linear(in_dim, self.hid_dim)
+        self.to_k = Linear(in_dim, self.hid_dim)
+        self.to_v = Linear(in_dim, self.hid_dim)
+        self.proj_out = Linear(self.hid_dim, in_dim, init_scale=0.)
+
+    def forward(self, x, **kwargs):
+        skip = x
+        B, _, H, W = x.shape
+        x = self.norm(x.flatten(start_dim=2)).transpose(1, 2)
+        q = self.to_q(x).reshape(B, -1, self.num_heads, self.head_dim).contiguous()
+        k = self.to_k(x).reshape(B, -1, self.num_heads, self.head_dim).contiguous()
+        v = self.to_v(x).reshape(B, -1, self.num_heads, self.head_dim).contiguous()
+        x = memory_efficient_attention(q, k, v)
+        x = self.proj_out(x)
+        return x.transpose(1, 2).reshape(B, -1, H, W) + skip
 
 
 class ResidualBlock(nn.Module):
@@ -133,7 +166,8 @@ class UNet(nn.Module):
             num_heads=None,
             num_classes=0,
             multitags=False,
-            resample_with_res=True
+            resample_with_res=True,
+            use_xformers=False
     ):
         super(UNet, self).__init__()
         self.in_channels = in_channels
@@ -154,6 +188,15 @@ class UNet(nn.Module):
         self.num_classes = num_classes
         self.multitags = multitags
         self.resample_with_res = resample_with_res
+
+        if use_xformers and not _xformers_available:
+            print("xFormers not available! Resetting to False.")
+        use_xformers = use_xformers and _xformers_available
+
+        self.attn_block = partial(
+            XFormersAttentionBlock if use_xformers else AttentionBlock,
+            head_dim=head_dim, num_heads=num_heads
+        )
 
         self.time_embed = nn.Sequential(
             Linear(self.hid_channels, self.embedding_dim),
@@ -178,7 +221,7 @@ class UNet(nn.Module):
         mid_kwargs = dict(embed_dim=self.embedding_dim, drop_rate=drop_rate)
         self.middle = Sequential(
             ResidualBlock(mid_channels, mid_channels, **mid_kwargs),
-            AttentionBlock(mid_channels, head_dim=head_dim, num_heads=num_heads),
+            self.attn_block(mid_channels),
             ResidualBlock(mid_channels, mid_channels, **mid_kwargs)
         )
         self.upsamples = nn.ModuleDict(
@@ -198,7 +241,7 @@ class UNet(nn.Module):
             if apply_attn:
                 return Sequential(ResidualBlock(
                     in_chans, out_chans, resampling=resampling, **block_cfgs),
-                    AttentionBlock(out_chans, self.head_dim, self.num_heads))
+                    self.attn_block(out_chans))
             else:
                 return ResidualBlock(
                     in_chans, out_chans, resampling=resampling, **block_cfgs)
@@ -280,7 +323,19 @@ class UNet(nn.Module):
 
 
 if __name__ == "__main__":
-    model = UNet(3, 64, 3, (2, 2, 2), 3, (False, True, True))
+    model = UNet(
+        3, 64, 3, (2, 2, 2),
+        3,
+        (False, True, True),
+        use_xformers=_xformers_available,
+    )
     print(model)
-    out = model(torch.randn(16, 3, 32, 32), t=torch.randint(1000, size=(16, )))
+    if torch.cuda.is_available():
+        model.cuda()
+        device = "cuda"
+    else:
+        device = "cpu"
+    x = torch.randn(16, 3, 32, 32, device=device)
+    t = torch.randint(1000, size=(16,), device=device)
+    out = model(x, t)
     print(out.shape)

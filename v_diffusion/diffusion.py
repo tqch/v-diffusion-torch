@@ -2,6 +2,7 @@ import math
 import numpy as np
 import torch
 import torch.nn.functional as F
+from functools import partial
 
 try:
     from .functions import normal_kl, discretized_gaussian_loglik, flat_mean
@@ -24,6 +25,18 @@ def broadcast_to(
         ndim = ndim or x.ndim
     out = torch.as_tensor(arr, dtype=dtype, device=device)
     return out.reshape((-1,) + (1,) * (ndim - 1))
+
+
+def repeat_along_dim(x: torch.Tensor, repeats: int, dim: int = 0):
+    as_shape = [-1 for _ in range(x.ndim + 1)]
+    as_shape[dim + 1] = repeats
+    out_shape = list(x.shape)
+    out_shape[dim] *= repeats
+    return x.unsqueeze(dim + 1).expand(*as_shape).contiguous().reshape(*out_shape)
+
+
+def slice_along_batch(x: torch.Tensor, span: int):
+    return [x[idx::span, ...] for idx in range(span)]
 
 
 def get_logsnr_schedule(
@@ -183,8 +196,8 @@ def logsnr_to_posterior_ddim(logsnr_s, logsnr_t, eta: float = 0., x0eps_coef: bo
                 mean_coef1 = stable_log1mexp(2 * math.log(eta) + log_one_minus_r).add_(
                     F.logsigmoid(-logsnr_s) - F.logsigmoid(-logsnr_t)).mul_(0.5)
                 mean_coef2 = stable_log1mexp((
-                    logr + stable_log1mexp(2 * math.log(eta) + log_one_minus_r)
-                ).mul_(0.5)).add_(0.5 * F.logsigmoid(logsnr_s))
+                                                     logr + stable_log1mexp(2 * math.log(eta) + log_one_minus_r)
+                                             ).mul_(0.5)).add_(0.5 * F.logsigmoid(logsnr_s))
             mean_coef1, mean_coef2 = mean_coef1.exp_(), mean_coef2.exp_()
 
         return tuple(map(lambda x: x.to(torch.float32), (mean_coef1, mean_coef2, logvar)))
@@ -321,6 +334,9 @@ class GaussianDiffusion:
                          }.get(self.model_out_type, _raise_error)(x_t, model_out, logsnr_t))
         if self.x0eps_coef:
             if clip_denoised or self.model_out_type != "eps":
+                # the pred_epsilon is always re-derived from the clipped x_0 in Glide (source: huggingface/diffusers)
+                # https://github.com/huggingface/diffusers/blob/df8559a7f9617ad2877cdc1ddc11ea9e8284537a/src/diffusers/schedulers/scheduling_ddim.py#L443C1-L443C82
+                # https://github.com/openai/glide-text2im/blob/69b530740eb6cef69442d6180579ef5ba9ef063e/glide_text2im/gaussian_diffusion.py#L530-L533
                 eps = pred_eps_from_x0(x_t, pred_x_0, logsnr_t)
             else:
                 eps = model_out
@@ -348,28 +364,29 @@ class GaussianDiffusion:
             step.add(1).div(self.sample_timesteps)
         logsnr_s, logsnr_t = self.t2logsnr(s, t, x=x_t)
         cond = broadcast_to(step > 0, x_t, dtype=torch.bool)
+
         use_cfg = self.w_guide and y is not None
+        _repeat = partial(repeat_along_dim, repeats=1 + use_cfg)
         if use_cfg:
-            x_t = torch.cat([x_t, x_t], dim=0)
-            t = torch.cat([t, t], dim=0)
-            y = torch.cat([y, torch.zeros_like(y)])
+            x_t, t, y = _repeat(x_t), _repeat(t), _repeat(y)
+            y[1::2] = 0
+
         model_out = denoise_fn(x_t, t, y)
         model_mean, model_logvar, pred_x_0 = self.p_mean_var(
-            model_out, x_t, logsnr_s, logsnr_t,
+            model_out, x_t, _repeat(logsnr_s), _repeat(logsnr_t),
             clip_denoised=clip_denoised, return_pred=True, use_ddim=use_ddim)
-        model_mean = torch.where(cond, model_mean, pred_x_0)
+        model_mean = torch.where(_repeat(cond), model_mean, pred_x_0)
         if use_cfg:
             # classifier-free guidance
-            model_out, _model_out = model_out.chunk(2, dim=0)
-            pred_x_0, _pred_x_0 = pred_x_0.chunk(2, dim=0)
-            _model_mean, _, _pred_x_0 = self.p_mean_var(
-                _model_out, x_t, logsnr_s, logsnr_t,
-                clip_denoised=clip_denoised, return_pred=True, use_ddim=use_ddim)
+            model_mean, _model_mean = slice_along_batch(model_mean, 2)
+            pred_x_0, _pred_x_0 = slice_along_batch(pred_x_0, 2)
             _model_mean = torch.where(cond, _model_mean, _pred_x_0)
             model_mean += self.w_guide * (model_mean - _model_mean)
             pred_x_0 += self.w_guide * (pred_x_0 - _pred_x_0)
+            if model_logvar.ndim > 0:
+                model_logvar = model_logvar[0::2]
 
-        noise = torch.empty_like(x_t).normal_(generator=generator)
+        noise = torch.empty_like(model_mean).normal_(generator=generator)
         sample = model_mean + cond.float() * torch.exp(0.5 * model_logvar) * noise
 
         return (sample, pred_x_0) if return_pred else sample
@@ -493,8 +510,8 @@ class GaussianDiffusion:
         if self.loss_type == "kl":
             logsnr_s = self.t2logsnr(s, x=x_0)[0]
             kl, nll = self._loss_term_bpd(
-                    model_out, x_0=x_0, x_t=x_t, logsnr_s=logsnr_s, logsnr_t=logsnr_t,
-                    clip_denoised=False, return_pred=False)
+                model_out, x_0=x_0, x_t=x_t, logsnr_s=logsnr_s, logsnr_t=logsnr_t,
+                clip_denoised=False, return_pred=False)
             loss = torch.where(use_kl, kl, nll)  # noqa
 
         elif self.loss_type == "mse":
@@ -596,6 +613,7 @@ if __name__ == "__main__":
         print(torch.allclose(mean_coef1 * torch.sigmoid(-logsnr_t).sqrt(), mean_coef1_))
         print(torch.allclose(mean_coef2 + torch.sigmoid(logsnr_s).sqrt() * mean_coef1, mean_coef2_))
 
+
     def test_legacy():
         logsnr_schedule = get_logsnr_schedule("legacy")
         t = torch.linspace(0, 1, 1000, dtype=torch.float32)
@@ -669,13 +687,38 @@ if __name__ == "__main__":
         check_allclose(cotangent, (logsnr, True))
 
 
+    def torch_repeat_along_dim(x, repeats, dim=0):
+        all_repeats = [1 for _ in range(x.ndim)]
+        all_repeats[dim] = repeats
+        return x.repeat(*all_repeats)
+
+
+    def test_repeat_along_dim():
+        import torch.utils.benchmark as benchmark
+        assert torch.cuda.is_available()
+        x = torch.randn(1000, 1000, device="cuda")
+        num_runs = 1000
+        t0 = benchmark.Timer(
+            stmt='torch_repeat_along_dim(x, 10)',
+            setup='from __main__ import torch_repeat_along_dim',
+            globals={'x': x}).timeit(num_runs)
+        t1 = benchmark.Timer(
+            stmt='repeat_along_dim(x, 10)',
+            setup='from __main__ import repeat_along_dim',
+            globals={'x': x}).timeit(num_runs)
+        print(t0)
+        print(t1)
+        print(f"{(t0.mean / t1.mean - 1) * 100 : .2f}% faster on average!")
+
+
     # run tests
     TESTS = [
         test_logsnr_to_posterior,  # 0
         test_logsnr_to_posterior_ddim,  # 1
         test_legacy,  # 2
         test_schedule,  # 3
+        test_repeat_along_dim,  # 4
     ]
-    TEST_INDICES = [0, 1]
+    TEST_INDICES = []
     for i in TEST_INDICES:
         TESTS[i]()

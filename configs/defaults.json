@@ -27,7 +27,8 @@
     "num_res_blocks": 3,
     "apply_attn": [false, true, true],
     "drop_rate": 0.2,
-    "num_heads": 1
+    "num_heads": 1,
+    "use_xformers": false
   },
   "diffusion": {
     "logsnr_min": -20.0,
@@ -47,5 +48,11 @@
     "use_cfg": false,
     "w_guide": 0.0,
     "p_uncond": 0.0
+  },
+  "speedup": {
+    "cudnn_benchmark": true,
+    "allow_tf32": false,
+    "allow_fp16": false,
+    "allow_bf16": false
   }
 }

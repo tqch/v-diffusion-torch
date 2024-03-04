@@ -106,6 +106,9 @@ def main(args):
     )
 
     # model parameters
+    update_model = partial(update_config, old_config=config.get("model", {}), new_config=args)
+    update_model("use_xformers", logical_op="OR")
+
     # currently, model_var_type = "learned" is not supported
     # out_channels = 2 * in_channels if model_var_type == "learned" else in_channels
     if "in_channels" in config["model"]:
@@ -168,16 +171,6 @@ def main(args):
     logger(f"Generated images (x{num_save_images}) will be saved to {os.path.abspath(image_dir)}", end=" ")
     logger(f"every {image_intv} epoch(s)")
 
-    if is_leader:
-        os.makedirs(exp_dir, exist_ok=True)
-        os.makedirs(ckpt_dir, exist_ok=True)
-        os.makedirs(ckpt_dir, exist_ok=True)
-
-        # keep a record of hyperparameter settings used for current experiment
-        with open(os.path.join(exp_dir, f"config.json"), "w") as f:
-            config["args"] = vars(args)
-            json.dump(config, f, indent=2)
-
     trainer = Trainer(
         model=model,
         optimizer=optimizer,
@@ -214,10 +207,50 @@ def main(args):
             logger("Checkpoint file does not exist!")
             logger("Starting from scratch...")
 
-    # use cudnn benchmarking algorithm to select the best conv algorithm
-    if torch.backends.cudnn.is_available():  # noqa
-        torch.backends.cudnn.benchmark = True  # noqa
-        logger(f"cuDNN benchmark: ON")
+    # speedup parameters
+    update_speedup = partial(update_config, old_config=config.get("speedup", {}), new_config=args)
+    cudnn_benchmark = update_speedup("cudnn_benchmark", logical_op="OR")
+    allow_tf32 = update_speedup("allow_tf32", logical_op="OR")
+    allow_fp16 = update_speedup("allow_fp16", logical_op="OR")
+    allow_bf16 = update_speedup("allow_bf16", logical_op="OR")
+
+    allow_tf32 = any(
+        f"NVIDIA {x}" in torch.cuda.get_device_name()
+        for x in ("A", "H", "RTX A", "RTX 30", "RTX 40", "RTX 50", "RTX 60")
+    ) and allow_tf32
+
+    if torch.backends.cudnn.is_available():
+        # use cudnn benchmarking algorithm to select the best conv algorithm
+        torch.backends.cudnn.benchmark = cudnn_benchmark
+        logger(f"cuDNN benchmark: {'ON' if cudnn_benchmark else 'OFF'}")
+        # TF32 tensor cores are designed to achieve better performance on matmul and convolutions on torch.float32
+        # tensors by rounding input data to have 10 bits of mantissa, and accumulating results with FP32 precision,
+        # maintaining FP32 dynamic range.
+        # source: https://pytorch.org/docs/stable/notes/cuda.html#tf32-on-ampere
+        # On Ampere and later CUDA devices, matrix multiplications and convolutions
+        # can use the TensorFloat-32 (TF32) mode for faster, but slightly less accurate computations.
+        # source: https://huggingface.co/docs/diffusers/en/optimization/fp16
+        torch.backends.cudnn.allow_tf32 |= allow_tf32  # default to True; disabling will slow down training
+        logger(f"TF32 conv: {'ON' if torch.backends.cudnn.allow_tf32 else 'OFF'}")
+
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+        logger(f"TF32 matmul: {'ON' if torch.backends.cuda.matmul.allow_tf32 else 'OFF'}")
+        torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = allow_fp16
+        logger(f"{'Enabled' if allow_fp16 else 'Disabled'} reduced precision reductions in fp16 GEMMs")
+        if torch.version.__version__.split("+")[0].split(".") >= ["2", "0", "0"]:
+            torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = allow_bf16
+            logger(f"{'Enabled' if allow_fp16 else 'Disabled'} reduced precision reductions in bf16 GEMMs")
+
+    if is_leader:
+        os.makedirs(exp_dir, exist_ok=True)
+        os.makedirs(ckpt_dir, exist_ok=True)
+        os.makedirs(ckpt_dir, exist_ok=True)
+
+        # keep a record of hyperparameter settings used for current experiment
+        with open(os.path.join(exp_dir, f"config.json"), "w") as f:
+            config["args"] = vars(args)
+            json.dump(config, f, indent=2)
 
     logger("Training starts...", flush=True)
     trainer.train(
@@ -269,6 +302,11 @@ if __name__ == "__main__":
     parser.add_argument("--eval-intv", type=int, default=128, help="frequency of evaluating the model")
     parser.add_argument("--ema-decay", type=float, help="decay factor of ema")
     parser.add_argument("--distributed", action="store_true", help="whether to use distributed training")
+    parser.add_argument("--cudnn-benchmark", action="store_true", help="whether to enable cuDNN benchmark")
+    parser.add_argument("--allow-tf32", action="store_true", help="whether allowing using TensorFloat32 (TF32)")
+    parser.add_argument("--allow-fp16", action="store_true", help="whether allowing using float16 (fp16)")
+    parser.add_argument("--allow-bf16", action="store_true", help="whether allowing using bfloat16 (bf16)")
+    parser.add_argument("--use-xformers", action="store_true", help="whether to use memory efficient attention")
     parser.add_argument("--max-ckpts-kept", type=int, help="maximum number of checkpoints to keep on disk (none for no cap)")
 
     # "OR"-type flags: use_cfg, use_ema, allow_rescale, x0eps_coef
