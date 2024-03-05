@@ -85,6 +85,7 @@ class Trainer:
             distributed=False,
             rank=0,  # process id for distributed training
             world_size=1,  # total number of processes
+            save_rng_state=False,  # whether to save the rng state of each device
     ):
         self.model = model
         self.optimizer = optimizer
@@ -114,6 +115,7 @@ class Trainer:
         self.rank = rank
         self.is_leader = rank == 0
         self.world_size = world_size
+        self.save_rng_state = save_rng_state
 
         assert num_save_images % world_size == 0
         self.local_num_save_images = num_save_images // world_size
@@ -192,7 +194,7 @@ class Trainer:
             labels = torch.as_tensor(
                 self.trainloader.dataset.targets[inds], dtype=torch.float32)
         else:
-            labels = torch.arange(self.num_classes, dtype=torch.float32) + 1
+            labels = torch.arange(self.num_classes, dtype=torch.float32).add(1)
             repeats = torch.as_tensor([
                 (self.num_save_images // self.num_classes
                  + int(i < self.num_save_images % self.num_classes))
@@ -269,11 +271,23 @@ class Trainer:
                 x = self.sample_fn(labels, use_ddim=use_ddim)
                 if self.is_leader:
                     save_image(x, os.path.join(image_dir, f"{e + 1}.png"), nrow=nrow)
-            if self.is_leader:
-                if not (e + 1) % self.ckpt_intv and ckpt_path and self.max_ckpts_kept != 0:
-                    if not results:
-                        results = self.current_stats
-                    self.save_checkpoint(ckpt_path, epoch=e + 1, **results)
+            if not (e + 1) % self.ckpt_intv and ckpt_path and self.max_ckpts_kept != 0:
+                rng_states = None
+                if self.save_rng_state:
+                    rng_state = self.generator.get_state()
+                    rng_states = [torch.zeros_like(
+                        rng_state, dtype=torch.int64, device=self.device
+                    ) for _ in range(self.world_size)]
+                    tdist.all_gather(rng_states, rng_state.long().to(self.device))
+                    rng_states = [rng_state.cpu().to(torch.uint8) for rng_state in rng_states]
+                if self.is_leader:
+                    # save rng states
+                    extras = results.copy()
+                    if not extras:
+                        extras = self.current_stats
+                    if self.save_rng_state:
+                        extras["rng"] = dict(enumerate(rng_states))
+                    self.save_checkpoint(ckpt_path, epoch=e + 1, **extras)
             if self.distributed:
                 dist.barrier()  # synchronize all processes here
 
@@ -292,6 +306,10 @@ class Trainer:
 
     def load_checkpoint(self, ckpt_path, map_location):
         ckpt = torch.load(ckpt_path, map_location=map_location)
+
+        if "rng" in ckpt:
+            self.generator.set_state(ckpt["rng"][int(self.rank)])
+
         for trainee in self.trainees:
             try:
                 getattr(self, trainee).load_state_dict(ckpt[trainee])
@@ -311,6 +329,9 @@ class Trainer:
             ckpt.append((k, v))
         for k, v in extra_info.items():
             ckpt.append((k, v))
+
+
+
         if "epoch" in extra_info:
             ckpt_path = ckpt_path.format(epoch=extra_info["epoch"])
         else:

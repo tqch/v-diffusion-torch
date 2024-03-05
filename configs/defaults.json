@@ -18,7 +18,8 @@
     "ckpt_intv": 32,
     "max_ckpts_kept": 1,
     "image_intv": 16,
-    "num_save_images": 64
+    "num_save_images": 64,
+    "save_rng_state": true
   },
   "model": {
     "in_channels": 3,

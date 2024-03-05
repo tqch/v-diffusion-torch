@@ -68,6 +68,7 @@ def main(args):
     image_intv = update_train("image_intv")
     num_save_images = update_train("num_save_images")
     max_ckpts_kept = update_train("max_ckpts_kept")
+    save_rng_state = update_train("save_rng_state", logical_op="OR")
 
     # set seed for all rngs
     seed_all(seed)
@@ -195,6 +196,7 @@ def main(args):
         distributed=distributed,
         rank=rank,
         world_size=world_size,
+        save_rng_state=save_rng_state,
     )
     evaluator = Evaluator(dataset=dataset, device=eval_device) if args.eval else None
     # in case of elastic launch, resume should always be turned on
@@ -202,7 +204,9 @@ def main(args):
     if resume:
         try:
             map_location = {"cuda:0": f"cuda:{local_rank}"} if distributed else train_device
-            trainer.load_checkpoint(ckpt_path, map_location=map_location)
+            from_ckpt = args.from_ckpt or ckpt_path
+            trainer.load_checkpoint(from_ckpt, map_location=map_location)
+            logger(f"Successfully loaded checkpoint from {os.path.abspath(from_ckpt)}!")
         except FileNotFoundError:
             logger("Checkpoint file does not exist!")
             logger("Starting from scratch...")
@@ -296,8 +300,10 @@ if __name__ == "__main__":
     parser.add_argument("--exp-dir", type=str, default="./exps")
     parser.add_argument("--exp-name", type=str)
     parser.add_argument("--ckpt-intv", type=int, help="frequency of saving a checkpoint")
+    parser.add_argument("--save-rng-state", action="store_true", help="whether to save the rng state of each device")
     parser.add_argument("--seed", type=int, help="random seed")
     parser.add_argument("--resume", action="store_true", help="to resume training from a checkpoint")
+    parser.add_argument("--from-ckpt", type=str, help="from which checkpoint to resume")
     parser.add_argument("--eval", action="store_true", help="whether to evaluate fid during training")
     parser.add_argument("--eval-intv", type=int, default=128, help="frequency of evaluating the model")
     parser.add_argument("--ema-decay", type=float, help="decay factor of ema")
