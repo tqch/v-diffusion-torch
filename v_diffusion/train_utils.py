@@ -266,12 +266,14 @@ class Trainer:
                         results.update(eval_results)
                         t.set_postfix(results)
 
-            if not (e + 1) % self.image_intv and self.num_save_images and image_dir:
+            if (((e + 1) == self.epochs  # last epoch
+                    or not (e + 1) % self.image_intv) and self.num_save_images and image_dir):
                 self.model.eval()
                 x = self.sample_fn(labels, use_ddim=use_ddim)
                 if self.is_leader:
                     save_image(x, os.path.join(image_dir, f"{e + 1}.png"), nrow=nrow)
-            if not (e + 1) % self.ckpt_intv and ckpt_path and self.max_ckpts_kept != 0:
+            if (((e + 1) == self.epochs  # last epoch
+                    or not (e + 1) % self.ckpt_intv) and self.max_ckpts_kept and ckpt_path):
                 rng_states = None
                 if self.save_rng_state:
                     rng_state = self.generator.get_state()
@@ -282,12 +284,12 @@ class Trainer:
                     rng_states = [rng_state.cpu().to(torch.uint8) for rng_state in rng_states]
                 if self.is_leader:
                     # save rng states
-                    extras = results.copy()
-                    if not extras:
-                        extras = self.current_stats
+                    extra_info = results.copy()
+                    if not extra_info:
+                        extra_info = self.current_stats
                     if self.save_rng_state:
-                        extras["rng"] = dict(enumerate(rng_states))
-                    self.save_checkpoint(ckpt_path, epoch=e + 1, **extras)
+                        extra_info["rng"] = dict(enumerate(rng_states))
+                    self.save_checkpoint(ckpt_path, epoch=e + 1, **extra_info)
             if self.distributed:
                 dist.barrier()  # synchronize all processes here
 
@@ -330,12 +332,15 @@ class Trainer:
         for k, v in extra_info.items():
             ckpt.append((k, v))
 
-
-
         if "epoch" in extra_info:
-            ckpt_path = ckpt_path.format(epoch=extra_info["epoch"])
+            epoch = int(extra_info)
+            if epoch != self.epochs:
+                ckpt_path = ckpt_path.format(epoch=epoch)
+            else:
+                ckpt_path = ckpt_path.format(epoch="last")
         else:
             ckpt_path = ckpt_path.format(epoch="latest")
+
         torch.save(dict(ckpt), ckpt_path)
         ckpts = glob.glob(f"{os.path.dirname(ckpt_path)}/*.pt")
         if self.max_ckpts_kept != -1 and len(ckpts) > self.max_ckpts_kept:
