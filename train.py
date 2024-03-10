@@ -1,4 +1,5 @@
 import os
+import math
 import json
 import torch
 from datetime import datetime
@@ -129,14 +130,25 @@ def main(args):
         # check whether torch.distributed is available
         # CUDA devices are required to run with NCCL backend
         assert dist.is_available() and torch.cuda.is_available()
-        dist.init_process_group("nccl")
-        rank = dist.get_rank()  # global process id across all node(s)
-        world_size = dist.get_world_size()  # total number of processes
-        local_rank = int(os.environ["LOCAL_RANK"])  # local device id on a single node
+        world_size = (
+                int(os.environ.get("WORLD_SIZE", "0")) or
+                int(os.environ.get("SLURM_NNODES", "0")) * torch.cuda.device_count() or
+                int(os.environ.get("SLURM_NTASKS", "0")) or -1)  # total number of processes
+        rank = int(
+            os.environ.get("RANK", None) or
+            os.environ.get("SLURM_PROCID", None) or -1
+        )  # global process id across all node(s)
+        dist.init_process_group("nccl", init_method="env://", world_size=world_size, rank=rank)
+        world_size = dist.get_world_size() if not world_size + 1 else world_size
+        rank = dist.get_rank() if not rank + 1 else rank
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))  # local device id on a single node
+        local_world_size = int(os.environ.get("LOCAL_WORLD_SIZE", "1"))  # total number of processes on a single node
         torch.cuda.set_device(local_rank)
         _model.cuda()
         model = DDP(_model, device_ids=[local_rank, ])
+        nnodes = math.ceil(world_size / local_world_size)
         train_device = eval_device = torch.device(f"cuda:{local_rank}")
+        logger(f"Distributed training on {world_size} GPU(s) and {nnodes} nodes!")
     else:
         rank = local_rank = 0  # main process by default
         world_size = 1
@@ -218,9 +230,10 @@ def main(args):
     allow_fp16 = update_speedup("allow_fp16", logical_op="OR")
     allow_bf16 = update_speedup("allow_bf16", logical_op="OR")
 
+    device_name = torch.cuda.get_device_name()
     allow_tf32 = any(
-        f"NVIDIA {x}" in torch.cuda.get_device_name()
-        for x in ("A", "H", "RTX A", "RTX 30", "RTX 40", "RTX 50", "RTX 60")
+        f"NVIDIA {x}" in device_name or "Ada" in device_name
+        for x in ("A", "H", "RTX A", "GeForce RTX 30", "GeForce RTX 40")
     ) and allow_tf32
 
     if torch.backends.cudnn.is_available():

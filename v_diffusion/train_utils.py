@@ -333,7 +333,7 @@ class Trainer:
             ckpt.append((k, v))
 
         if "epoch" in extra_info:
-            epoch = int(extra_info)
+            epoch = int(extra_info["epoch"])
             if epoch != self.epochs:
                 ckpt_path = ckpt_path.format(epoch=epoch)
             else:

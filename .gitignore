@@ -34,6 +34,7 @@ __pycache__/
 
 # Project
 logs/
+jobs/
 exps/
 test/
 debug/

@@ -365,8 +365,8 @@ class GaussianDiffusion:
         logsnr_s, logsnr_t = self.t2logsnr(s, t, x=x_t)
         cond = broadcast_to(step > 0, x_t, dtype=torch.bool)
 
-        use_cfg = self.w_guide and y is not None
-        _repeat = partial(repeat_along_dim, repeats=1 + use_cfg)
+        use_cfg = (self.w_guide > 0) and (y is not None)
+        _repeat = partial(repeat_along_dim, repeats=1 + int(use_cfg))
         if use_cfg:
             x_t, t, y = _repeat(x_t), _repeat(t), _repeat(y)
             y[1::2] = 0
