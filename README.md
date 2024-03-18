@@ -115,7 +115,7 @@ python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c
             <th width="15%" align="center">class</th>
             <th width="75%" align="center">images</th>
         </tr><tr>
-            <td rowspan="10" height="100%"><b>w=0</b></td>
+            <td rowspan="10" height="100%"><b>w=0</b><br>FID:2.58<br>IS:9.76</td>
             <td height="10%">airplanes</td>
             <td rowspan="10" height="100%"><a href="./assets/cifar10_w0.png"><img alt="w=0" src="./assets/cifar10_w0.png" height="100%" width="100%"></a></td>
         </tr><tr>
@@ -137,9 +137,9 @@ python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c
         </tr><tr>
             <td height="10%">trucks</td>
         </tr><tr>
-            <td rowspan="10" height="100%"><b>w=1</b></td>
+            <td rowspan="10" height="100%"><b>w=0.1</b><br>FID:3.12<br>IS:10.01</td>
             <td height="10%">airplanes</td>
-            <td rowspan="10" height="100%"><a href="./assets/cifar10_w1.png"><img alt="w=1" src="./assets/cifar10_w1.png" height="100%" width="100%"></a></td>
+            <td rowspan="10" height="100%"><a href="./assets/cifar10_w0.1.png"><img alt="w=0.1" src="./assets/cifar10_w0.1.png" height="100%" width="100%"></a></td>
         </tr></td>
         </tr><tr>
             <td height="10%">cars</td>
@@ -160,9 +160,9 @@ python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c
         </tr><tr>
             <td height="10%">trucks</td>
         </tr><tr>
-            <td rowspan="10" height="100%"><b>w=3</b></td>
+            <td rowspan="10" height="100%"><b>w=1</b><br>FID:21.35<br>IS:9.92</td>
 			<td height="10%">airplanes</td>
-			<td rowspan="10" height="100%"><a href="./assets/cifar10_w3.png"><img alt="w=3" src="./assets/cifar10_w3.png" height="100%" width="100%"></a></td>
+			<td rowspan="10" height="100%"><a href="./assets/cifar10_w1.png"><img alt="w=1" src="./assets/cifar10_w1.png" height="100%" width="100%"></a></td>
         </tr><tr>
             <td height="10%">cars</td>
         </tr><tr>
@@ -184,6 +184,8 @@ python -m torch.distributed.run --standalone --nproc_per_node 2 --rdzv_backend c
         </tr>
 	</table>
 </p>
+
+
 
 ### CelebA
 

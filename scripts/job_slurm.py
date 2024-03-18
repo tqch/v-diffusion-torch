@@ -53,7 +53,7 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 ####################################################################################################
 # srun launch multinode/multiprocess training job
 ####################################################################################################
-export OMP_THREADS
+export OMP_NUM_THREADS=4
 srun --kill-on-bad-exit=1 --wait=60 \\
 torchrun \\
   --nproc_per_node=$NGPUS  \\

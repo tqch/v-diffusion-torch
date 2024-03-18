@@ -15,9 +15,9 @@ if __name__ == "__main__":
     parser.add_argument("--data-root", type=str, default="~/datasets")
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--total-size", type=int, default=50000)
+    parser.add_argument("--default-config-path", default="./configs/defaults.json", type=str)
     parser.add_argument("--config-path", type=str, required=True)
-    parser.add_argument("--ckpt-dir", type=str, default="./ckpts")
-    parser.add_argument("--ckpt-path", type=str, default="")
+    parser.add_argument("--ckpt-path", type=str, required=True)
     parser.add_argument("--save-dir", type=str, default="./images/eval")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--use-ema", action="store_true")
@@ -30,7 +30,6 @@ if __name__ == "__main__":
 
     device = torch.device(args.device)
 
-    ckpt_dir = args.ckpt_dir
     ckpt_path = args.ckpt_path
     use_ema = args.use_ema
     if use_ema:
@@ -53,7 +52,7 @@ if __name__ == "__main__":
     fill_with_defaults(config, defaults)
     dataset = config["data"]["name"]
 
-    data_root = os.path.expanduser(args.data_root)
+    data_root = args.data_root
     if "~" in data_root:
         data_root = os.path.expanduser(data_root)
     if "$" in data_root:
@@ -72,11 +71,13 @@ if __name__ == "__main__":
     logsnr_schedule = diffusion_kwargs.pop("logsnr_schedule")
     logsnr_max = diffusion_kwargs.pop("logsnr_max")
     logsnr_min = diffusion_kwargs.pop("logsnr_min")
-    logsnr_fn = get_logsnr_schedule(logsnr_schedule, logsnr_min, logsnr_max)
+    logsnr_fn = get_logsnr_schedule(
+        logsnr_schedule, logsnr_min, logsnr_max, rescale=diffusion_kwargs.pop("allow_rescale"))
+    diffusion_kwargs["sample_timesteps"] = args.sample_timesteps
+    diffusion_kwargs.pop("train_timesteps")
 
     diffusion = GaussianDiffusion(
         logsnr_fn=logsnr_fn,
-        sample_timesteps=args.sample_timesteps,
         w_guide=w_guide,
         **diffusion_kwargs)
 
@@ -103,6 +104,9 @@ if __name__ == "__main__":
     total_size = args.total_size
     num_eval_batches = math.ceil(total_size / batch_size)
     shape = (batch_size, 3, image_res, image_res)
+
+    with open(os.path.join(save_dir, "args.txt"), "w") as f:
+        json.dump(vars(args), f)
 
     def save_image(arr):
         with Image.fromarray(arr, mode="RGB") as im:
